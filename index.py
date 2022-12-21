@@ -19,6 +19,7 @@ from time import sleep
 load_dotenv()
 proxy_rotator_url = os.getenv('PROXY_ROTATOR_URL')
 proxy_rotator_key = os.getenv('PROXY_ROTATOR_KEY')
+dir_path = os.getenv('DIR_PATH')
 
 def proxy_rotator():
     params = dict(apiKey=proxy_rotator_key)
@@ -42,12 +43,12 @@ def fetch(symbol):
         df = pd.concat(df_list)
         
         # save to csv
-        df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"csv/{symbol}.csv")
+        df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"{dir_path}\\csv\\{symbol}.csv")
 
         print(f"Fetching {symbol} with proxy {proxy}: success!")
     except Exception as error:
         print(f"Fetching {symbol} with proxy {proxy}: failed!")
-        write_to_csv(symbol, 'failed.csv')
+        write_to_csv(symbol, f"{dir_path}\\failed.csv")
         print(error)
 
 def write_to_csv(data, file_name):
@@ -71,7 +72,7 @@ def executor_submit(executor, stock_list):
     return {executor.submit(fetch, symbol): symbol for symbol in stock_list}
 
 def fetch_async(stock_list):
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         future_to_user = executor_submit(executor, stock_list)
         for future in concurrent.futures.as_completed(future_to_user):
             try:
@@ -84,7 +85,7 @@ def fetch_async(stock_list):
                 print(traceback.format_exc())
 
 def retry_fetch():
-    path = "/Users/gamarinaldi/Desktop/sandbox/idx_daily_updater/failed.csv"
+    path = f"{dir_path}\\failed.csv"
     with open(path, "r") as file:
         csvreader = csv.reader(file)
         if is_empty_csv(path) == False:
@@ -96,10 +97,10 @@ def retry_fetch():
 
 def merge_csv():
     # Merge all emiten data
-    interesting_files = glob.glob("csv/*.csv")
-    df = pd.concat((pd.read_csv(f, header = 0) for f in interesting_files))
-    now = dt.now().strftime('%Y%m%d')
-    df.to_csv(f"merged/{now}.csv")
+    files = glob.glob(f"{dir_path}\\csv\\*.csv")
+    df = pd.concat((pd.read_csv(f, header = 0) for f in files))
+    # now = dt.now().strftime('%Y%m%d')
+    df.to_csv(f"{dir_path}\\merged\\result.csv")
 
 def is_empty_csv(path):
     with open(path) as csvfile:
@@ -118,7 +119,7 @@ if __name__ == '__main__':
     # fetch("GOTO")
     # fetch(all_stock.list2)
     # retry_fetch()
-    # merge_csv()
+    merge_csv()
 
     t2 = time.time()
     diff = t2 -t1
