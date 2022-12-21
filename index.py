@@ -51,7 +51,7 @@ def fetch(symbol):
         print(error)
 
 def write_to_csv(data, file_name):
-    if data in all_stock.list:
+    if data in watchlist.list:
         row = [data]
     else:
         item = data.split(",")
