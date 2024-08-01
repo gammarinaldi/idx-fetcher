@@ -1,3 +1,3 @@
 # IDX Updater
 
-Update EOD bursa saham Indonesia dengan watchlist pilihan.
+Pulling end-of-day stocks data from Indonesia Stock Exchange.
