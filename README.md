@@ -1,7 +1,7 @@
 # IDX Updater
 
-Pulling end-of-day stocks data based Indonesia Stock Exchange.
-Get list of stocks from [idx.co](https://idx.co/ListedCompanies.jsp).
+Get historical data based for Indonesia Stock Exchange.
+Get list of stocks from [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/daftar-saham).
 
 ## Features
 
