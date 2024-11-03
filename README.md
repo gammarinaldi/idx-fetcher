@@ -1,4 +1,4 @@
-# IDX Updater
+# IDX Fetcher
 
 Get historical OHLCV data from Indonesia Stock Exchange.
 Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/daftar-saham).
