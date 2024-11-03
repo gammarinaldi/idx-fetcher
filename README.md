@@ -1,11 +1,11 @@
 # IDX Updater
 
-Get historical data for Indonesia Stock Exchange.
-Get list of stocks from [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/daftar-saham).
+Get historical OHLCV data from Indonesia Stock Exchange.
+Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/daftar-saham).
 
 ## Features
 
-- Fetch data from Yahoo Finance
+- Fetch OHLCV data from Yahoo Finance
 - Save data to CSV
 - Retry failed fetches
 - Use proxy to fetch data
