@@ -9,6 +9,7 @@ Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/d
 - Save data to CSV
 - Retry failed fetches
 - Use proxy to fetch data
+- Enable/disable proxy usage
 
 ## Installation
 
@@ -19,7 +20,7 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python3 index.py
+python index.py
 ```
 
 ## Example
