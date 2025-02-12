@@ -21,7 +21,6 @@ from urllib3.exceptions import ProtocolError
 
 # Load environment variables
 load_dotenv()
-WEBSHARE_API_KEY = os.getenv('WEBSHARE_API_KEY')
 
 def setup_logging():
     """Configure logging with timestamp, level, and message."""
@@ -39,11 +38,19 @@ def get_proxy_session():
     Create a session with Webshare proxy configuration.
     """
     try:
+        # Get credentials from environment variables
+        username = os.getenv('WEBSHARE_USERNAME')
+        password = os.getenv('WEBSHARE_PASSWORD')
+        
+        if not username or not password:
+            raise ValueError("Webshare proxy credentials not found in environment variables")
+        
         # Create session with rotating proxy
         session = requests.Session()
+        proxy_url = f"http://{username}:{password}@p.webshare.io:80/"
         session.proxies = {
-            "http": "http://rclciqjf-rotate:8zwdyu7p2jfi@p.webshare.io:80/",
-            "https": "http://rclciqjf-rotate:8zwdyu7p2jfi@p.webshare.io:80/"
+            "http": proxy_url,
+            "https": proxy_url
         }
         
         # Test the proxy connection
