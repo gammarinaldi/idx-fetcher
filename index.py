@@ -10,13 +10,18 @@ import logging
 
 import yfinance as yf
 import pandas as pd
-import proxlist
+import requests
+from dotenv import load_dotenv
 
 from typing import List
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Any
 from requests.exceptions import ChunkedEncodingError, RequestException
 from urllib3.exceptions import ProtocolError
+
+# Load environment variables
+load_dotenv()
+WEBSHARE_API_KEY = os.getenv('WEBSHARE_API_KEY')
 
 def setup_logging():
     """Configure logging with timestamp, level, and message."""
@@ -28,6 +33,28 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+def get_proxy_session():
+    """
+    Create a session with Webshare proxy configuration.
+    """
+    try:
+        # Create session with rotating proxy
+        session = requests.Session()
+        session.proxies = {
+            "http": "http://rclciqjf-rotate:8zwdyu7p2jfi@p.webshare.io:80/",
+            "https": "http://rclciqjf-rotate:8zwdyu7p2jfi@p.webshare.io:80/"
+        }
+        
+        # Test the proxy connection
+        test_response = session.get("https://ipv4.webshare.io/")
+        test_response.raise_for_status()
+        logger.info(f"Connected via IP: {test_response.text.strip()}")
+        
+        return session
+    except Exception as e:
+        logger.error(f"Error setting up Webshare proxy: {e}")
+        raise
 
 def fetch_stock_data(symbol: str, use_proxy: bool = False, max_retries: int = 5, initial_delay: float = 1.0) -> None:
     """
@@ -41,55 +68,66 @@ def fetch_stock_data(symbol: str, use_proxy: bool = False, max_retries: int = 5,
     """
     logger.info(f"Starting fetch for symbol: {symbol}")
     delay = initial_delay
-    for attempt in range(max_retries):
-        try:
-            proxy = None
-            if use_proxy:
-                try:
-                    proxy = proxlist.random_proxy()
-                    logger.debug(f"Selected proxy: {proxy}")
-                except Exception as e:
-                    logger.error(f"Error getting random proxy: {e}")
-            
-            logger.info(f"Fetching {symbol} with{' ' if proxy else ' no '}proxy{f' {proxy}' if proxy else ''} (Attempt {attempt + 1}/{max_retries})")
+    session = None
+    
+    try:
+        if use_proxy:
+            logger.info(f"Setting up Webshare proxy for {symbol}")
+            session = get_proxy_session()
+            logger.info(f"Webshare proxy ready for {symbol}")
 
-            df = yf.download(symbol, period="max", interval="1d", group_by="ticker", proxy=proxy)
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Fetching {symbol} with{' ' if use_proxy else ' no '}proxy (Attempt {attempt + 1}/{max_retries})")
+
+                if use_proxy:
+                    df = yf.download(symbol, period="max", interval="1d", group_by="ticker", session=session)
+                else:
+                    df = yf.download(symbol, period="max", interval="1d", group_by="ticker")
+                
+                logger.info(f"DataFrame columns: {df.columns.tolist()}")
+                logger.info(f"DataFrame shape: {df.shape}")
+                
+                if df.empty:
+                    raise ValueError("Empty dataframe returned")
+                
+                # Flatten the multi-index columns if they exist
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(1)
+                
+                # Check if required columns exist
+                required_columns = ["Open", "High", "Low", "Close"]
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                if missing_columns:
+                    raise ValueError(f"Missing required columns: {missing_columns}")
+                
+                df['Ticker'] = symbol.replace(".JK", "")
+                
+                # Round down the Open, High, Low, and Close columns using math.floor
+                df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(lambda x: x.apply(math.floor))
+                
+                df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"csv/{symbol}.csv")
+                logger.info(f"Successfully saved data for {symbol} to csv/{symbol}.csv")
+                return
+            except (ChunkedEncodingError, ProtocolError, RequestException) as net_error:
+                logger.warning(f"Network error while fetching {symbol}: {net_error}")
+            except ValueError as ve:
+                logger.warning(f"Value error while fetching {symbol}: {ve}")
+            except Exception as error:
+                logger.error(f"Unexpected error fetching {symbol} with proxy {use_proxy}: {error}")
             
-            logger.info(f"DataFrame columns: {df.columns.tolist()}")
-            logger.info(f"DataFrame shape: {df.shape}")
-            
-            if df.empty:
-                raise ValueError("Empty dataframe returned")
-            
-            # Flatten the multi-index columns if they exist
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(1)
-            
-            # Check if required columns exist
-            required_columns = ["Open", "High", "Low", "Close"]
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                raise ValueError(f"Missing required columns: {missing_columns}")
-            
-            df['Ticker'] = symbol.replace(".JK", "")
-            
-            # Round down the Open, High, Low, and Close columns using math.floor
-            df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(lambda x: x.apply(math.floor))
-            
-            df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"csv/{symbol}.csv")
-            logger.info(f"Successfully saved data for {symbol} to csv/{symbol}.csv")
-            return
-        except (ChunkedEncodingError, ProtocolError, RequestException) as net_error:
-            logger.warning(f"Network error while fetching {symbol}: {net_error}")
-        except ValueError as ve:
-            logger.warning(f"Value error while fetching {symbol}: {ve}")
-        except Exception as error:
-            logger.error(f"Unexpected error fetching {symbol} with proxy {proxy}: {error}")
-        
-        if attempt < max_retries - 1:
-            wait_time = delay * (2 ** attempt) + random.uniform(0, 1)
-            logger.info(f"Retrying {symbol} in {wait_time:.2f} seconds...")
-            time.sleep(wait_time)
+            if attempt < max_retries - 1:
+                wait_time = delay * (2 ** attempt) + random.uniform(0, 1)
+                logger.info(f"Retrying {symbol} in {wait_time:.2f} seconds...")
+                time.sleep(wait_time)
+    
+    finally:
+        # Cleanup session if it was created
+        if session:
+            try:
+                session.close()
+            except Exception as e:
+                logger.error(f"Error closing session for {symbol}: {e}")
     
     logger.error(f"Failed to fetch {symbol} after {max_retries} attempts")
     write_to_csv(symbol, "failed.csv")
