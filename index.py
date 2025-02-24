@@ -100,11 +100,15 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 # Add the custom handler
                 error_handler = ErrorCaptureHandler()
                 logging.getLogger('yfinance').addHandler(error_handler)
+                
+                PERIOD = os.getenv('PERIOD')
+                INTERVAL = os.getenv('INTERVAL')
+                GROUP_BY = os.getenv('GROUP_BY')
 
                 if use_proxy:
-                    df = yf.download(symbol, period="1d", interval="1d", group_by="ticker", session=session)
+                    df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
                 else:
-                    df = yf.download(symbol, period="1d", interval="1d", group_by="ticker")
+                    df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY)
                     
                 # Check if YFPricesMissingError was logged
                 if any("YFPricesMissingError" in msg or "no price data found" in msg 
