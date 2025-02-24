@@ -63,7 +63,7 @@ def get_proxy_session():
         logger.error(f"Error setting up Webshare proxy: {e}")
         raise
 
-def fetch_stock_data(symbol: str, use_proxy: bool = False, max_retries: int = 5, initial_delay: float = 1.0) -> None:
+def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_delay: int) -> None:
     """
     Fetch stock data for a given symbol and save it to a CSV file.
     
@@ -86,11 +86,35 @@ def fetch_stock_data(symbol: str, use_proxy: bool = False, max_retries: int = 5,
         for attempt in range(max_retries):
             try:
                 logger.info(f"Fetching {symbol} with{' ' if use_proxy else ' no '}proxy (Attempt {attempt + 1}/{max_retries})")
+                
+                # Create a custom handler to capture error logs
+                class ErrorCaptureHandler(logging.Handler):
+                    def __init__(self):
+                        super().__init__()
+                        self.error_messages = []
+                    
+                    def emit(self, record):
+                        if record.levelno >= logging.ERROR:
+                            self.error_messages.append(record.getMessage())
+
+                # Add the custom handler
+                error_handler = ErrorCaptureHandler()
+                logging.getLogger('yfinance').addHandler(error_handler)
 
                 if use_proxy:
-                    df = yf.download(symbol, period="max", interval="1d", group_by="ticker", session=session)
+                    df = yf.download(symbol, period="1d", interval="1d", group_by="ticker", session=session)
                 else:
-                    df = yf.download(symbol, period="max", interval="1d", group_by="ticker")
+                    df = yf.download(symbol, period="1d", interval="1d", group_by="ticker")
+                    
+                # Check if YFPricesMissingError was logged
+                if any("YFPricesMissingError" in msg or "no price data found" in msg 
+                      for msg in error_handler.error_messages):
+                    logger.warning(f"No price data found for {symbol}, likely delisted. Skipping retries.")
+                    # write_to_csv(symbol, "failed.csv")
+                    return
+
+                # Remove the custom handler
+                logging.getLogger('yfinance').removeHandler(error_handler)
                 
                 logger.info(f"DataFrame columns: {df.columns.tolist()}")
                 logger.info(f"DataFrame shape: {df.shape}")
@@ -151,7 +175,7 @@ def write_to_csv(data: Any, file_name: str) -> None:
     with open(file_name, 'a', newline='', encoding='utf-8') as f:
         csv.writer(f).writerow(row)
 
-def fetch_async(stock_list: List[str], use_proxy: bool = False, max_retries: int = 5, initial_delay: float = 1.0) -> List[str]:
+def fetch_async(stock_list: List[str], use_proxy: bool, max_retries: int, initial_delay: int) -> List[str]:
     """
     Fetch stock data asynchronously for a list of symbols and return list of failed stocks.
     
@@ -182,7 +206,7 @@ def fetch_async(stock_list: List[str], use_proxy: bool = False, max_retries: int
                 failed_stocks.append(symbol)
     return failed_stocks
 
-def retry_failed_fetches(max_retries: int = 3, initial_delay: float = 5.0) -> None:
+def retry_failed_fetches(max_retries: int, initial_delay: int) -> None:
     """Retry fetching data for failed stocks with exponential backoff."""
     failed_csv_path = "failed.csv"
     if not is_empty_csv(failed_csv_path):
@@ -220,6 +244,7 @@ def merge_csv_files() -> None:
     files = glob.glob("csv/*.csv")
     df = pd.concat((pd.read_csv(f, header=0) for f in files))
     df.to_csv("results.csv", index=False)
+    df.to_csv("results.gama", index=False)
 
 def is_empty_csv(path: str) -> bool:
     """Check if a CSV file is empty (contains only header)."""
@@ -228,10 +253,10 @@ def is_empty_csv(path: str) -> bool:
     
 def get_stock_list() -> List[str]:
     """
-    Extract stock codes from the Excel file and format them.
+    Extract stock codes from the CSV file and format them.
     """
-    excel_path = "Daftar-Saham-20241019.xlsx"
-    df = pd.read_excel(excel_path)
+    csv_path = os.getenv('STOCK_LIST_PATH')
+    df = pd.read_csv(csv_path)
     stock_codes = df['Kode'].tolist()
     
     # Add '.JK' to each stock code
@@ -241,7 +266,9 @@ def get_stock_list() -> List[str]:
 
 if __name__ == '__main__':
     # Configuration
-    USE_PROXY = False  # Set this to True to enable proxy usage
+    USE_PROXY = False
+    MAX_RETRIES = int(os.getenv('MAX_RETRIES'))
+    INITIAL_DELAY = int(float(os.getenv('INITIAL_DELAY')))  # Convert from float string to int
     
     logger.info("Starting IDX updater...")
     start_time = time.time()
@@ -256,10 +283,10 @@ if __name__ == '__main__':
     open("results.csv", "w").close()
 
     logger.info("Starting async fetch for all stocks...")
-    fetch_async(stock_list, use_proxy=USE_PROXY)
+    fetch_async(stock_list, use_proxy=USE_PROXY, max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)
 
     logger.info("Starting retry process for failed fetches...")
-    retry_failed_fetches(max_retries=3, initial_delay=5.0)
+    retry_failed_fetches(max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)
 
     logger.info("Merging CSV files...")
     merge_csv_files()
