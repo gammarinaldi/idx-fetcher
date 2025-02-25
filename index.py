@@ -114,7 +114,7 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 if any("YFPricesMissingError" in msg or "no price data found" in msg 
                       for msg in error_handler.error_messages):
                     logger.warning(f"No price data found for {symbol}, likely delisted. Skipping retries.")
-                    # write_to_csv(symbol, "failed.csv")
+                    # write_to_csv(symbol, f"{os.getenv('DIR_PATH')}/failed.csv")
                     return
 
                 # Remove the custom handler
@@ -141,8 +141,8 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 # Round down the Open, High, Low, and Close columns using math.floor
                 df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(lambda x: x.apply(math.floor))
                 
-                df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"csv/{symbol}.csv")
-                logger.info(f"Successfully saved data for {symbol} to csv/{symbol}.csv")
+                df[["Ticker", "Open", "High", "Low", "Close", "Volume"]].to_csv(f"{os.getenv('DIR_PATH')}/csv/{symbol}.csv")
+                logger.info(f"Successfully saved data for {symbol} to {os.getenv('DIR_PATH')}/csv/{symbol}.csv")
                 return
             except (ChunkedEncodingError, ProtocolError, RequestException) as net_error:
                 logger.warning(f"Network error while fetching {symbol}: {net_error}")
@@ -165,7 +165,7 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 logger.error(f"Error closing session for {symbol}: {e}")
     
     logger.error(f"Failed to fetch {symbol} after {max_retries} attempts")
-    write_to_csv(symbol, "failed.csv")
+    write_to_csv(symbol, f"{os.getenv('DIR_PATH')}/failed.csv")
 
 def write_to_csv(data: Any, file_name: str) -> None:
     """Write data to a CSV file."""
@@ -190,7 +190,7 @@ def fetch_async(stock_list: List[str], use_proxy: bool, max_retries: int, initia
         initial_delay: Initial delay between retries
     """
     failed_stocks = []
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=int(os.getenv('MAX_WORKERS', 1))) as executor:
         future_to_stock = {
             executor.submit(fetch_stock_data, symbol, use_proxy, max_retries, initial_delay): symbol 
             for symbol in stock_list
@@ -212,7 +212,7 @@ def fetch_async(stock_list: List[str], use_proxy: bool, max_retries: int, initia
 
 def retry_failed_fetches(max_retries: int, initial_delay: int) -> None:
     """Retry fetching data for failed stocks with exponential backoff."""
-    failed_csv_path = "failed.csv"
+    failed_csv_path = f"{os.getenv('DIR_PATH')}/failed.csv"
     if not is_empty_csv(failed_csv_path):
         with open(failed_csv_path, "r") as file:
             stock_list = [row[0] for row in csv.reader(file)]
@@ -245,10 +245,10 @@ def retry_failed_fetches(max_retries: int, initial_delay: int) -> None:
 
 def merge_csv_files() -> None:
     """Merge all individual stock CSV files into a single result file."""
-    files = glob.glob("csv/*.csv")
+    files = glob.glob(f"{os.getenv('DIR_PATH')}/csv/*.csv")
     df = pd.concat((pd.read_csv(f, header=0) for f in files))
-    df.to_csv("results.csv", index=False)
-    df.to_csv("results.gama", index=False)
+    df.to_csv(f"{os.getenv('DIR_PATH')}/results.csv", index=False)
+    df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
 
 def is_empty_csv(path: str) -> bool:
     """Check if a CSV file is empty (contains only header)."""
@@ -283,8 +283,8 @@ if __name__ == '__main__':
 
     logger.info("Creating required directories and files...")
     os.makedirs("csv", exist_ok=True)
-    open("failed.csv", "w").close()
-    open("results.csv", "w").close()
+    open(f"{os.getenv('DIR_PATH')}/failed.csv", "w").close()
+    open(f"{os.getenv('DIR_PATH')}/results.csv", "w").close()
 
     logger.info("Starting async fetch for all stocks...")
     fetch_async(stock_list, use_proxy=USE_PROXY, max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)

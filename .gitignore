@@ -2,3 +2,6 @@ __pycache__
 *.bat
 csv/
 .env
+results-max.csv
+results.csv
+results.gama
