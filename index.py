@@ -259,7 +259,7 @@ def get_stock_list() -> List[str]:
     """
     Extract stock codes from the CSV file and format them.
     """
-    csv_path = os.getenv('STOCK_LIST_PATH')
+    csv_path = os.getenv('DIR_PATH') + "/" + os.getenv('STOCK_LIST_PATH')
     df = pd.read_csv(csv_path)
     stock_codes = df['Kode'].tolist()
     
