@@ -84,7 +84,7 @@ def get_fundamental_data(symbol: str) -> Dict[str, Any]:
             'dividend_yield': info.get('dividendYield'),
             'dividend_rate': info.get('dividendRate'),
             'payout_ratio': info.get('payoutRatio'),
-            'last_updated': pd.Timestamp.now()
+            'last_updated': pd.Timestamp.now(),
         }
         
         return fundamental_data
@@ -107,12 +107,11 @@ def store_fundamental_data(data: Dict[str, Any]) -> None:
     collection = db['fundamental_data']
     
     try:
-        # Update or insert the document
-        collection.update_one(
-            {'symbol': data['symbol']},
-            {'$set': data},
-            upsert=True
-        )
+        # Add created_at field with current date
+        data['created_at'] = pd.Timestamp.now().strftime("%Y-%m-%d")
+        
+        # Insert new document
+        collection.insert_one(data)
         logger.info(f"Successfully stored fundamental data for {data['symbol']}")
     except Exception as e:
         logger.error(f"Error storing fundamental data for {data['symbol']}: {str(e)}")

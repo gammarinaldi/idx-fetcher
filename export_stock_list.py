@@ -29,6 +29,7 @@ def setup_mongodb() -> MongoClient:
 def export_stock_list_to_mongodb(csv_path: str) -> None:
     """
     Export stock list from CSV to MongoDB.
+    Only exports stocks that don't exist or have empty kode values.
     
     Args:
         csv_path: Path to the stock list CSV file
@@ -45,16 +46,22 @@ def export_stock_list_to_mongodb(csv_path: str) -> None:
         # Convert column names to lowercase
         df.columns = df.columns.str.lower()
         
-        # Convert DataFrame to list of dictionaries
-        records = df.to_dict('records')
+        # Get existing records
+        existing_records = list(collection.find({}, {'kode': 1, '_id': 0}))
+        existing_kodes = {record['kode'] for record in existing_records if record.get('kode')}
         
-        # Clear existing data in the collection
-        collection.delete_many({})
+        # Filter records to insert
+        records_to_insert = []
+        for record in df.to_dict('records'):
+            if record['kode'] not in existing_kodes:
+                records_to_insert.append(record)
         
-        # Insert new data
-        if records:
-            result = collection.insert_many(records)
-            logger.info(f"Successfully uploaded {len(result.inserted_ids)} stock records")
+        # Insert new records
+        if records_to_insert:
+            result = collection.insert_many(records_to_insert)
+            logger.info(f"Successfully uploaded {len(result.inserted_ids)} new stock records")
+        else:
+            logger.info("No new records to insert")
             
     except Exception as e:
         logger.error(f"Error during stock list export: {str(e)}")
