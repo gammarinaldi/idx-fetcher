@@ -168,15 +168,8 @@ def fetch_stock_data(symbol: str, max_retries: int, initial_delay: int) -> None:
 
 def write_to_csv(data: Any, file_name: str) -> None:
     """Write data to a CSV file."""
-    if isinstance(data, str):
-        row = [data]
-    else:
-        item = data.split(",")
-        symbol = "IHSG" if item[0] == "JKSE" else item[0]
-        row = [symbol] + item[1:6] + [item[7]]
-    
     with open(file_name, 'a', newline='', encoding='utf-8') as f:
-        csv.writer(f).writerow(row)
+        csv.writer(f).writerow([data])
 
 def fetch_async(stock_list: List[str], max_retries: int, initial_delay: int) -> List[str]:
     """
@@ -310,7 +303,7 @@ if __name__ == '__main__':
     logger.info("Starting IDX updater...")
     start_time = time.time()
 
-    stock_list = get_stock_list()
+    stock_list = ["^JKSE"]
     logger.info(f"Loaded {len(stock_list)} stocks to process")
 
     logger.info("Creating required directories and files...")
