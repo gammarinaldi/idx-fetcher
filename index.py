@@ -7,17 +7,16 @@ import csv
 import time
 import random
 import logging
-
+from typing import List, Any
+from concurrent.futures import ThreadPoolExecutor
+from requests.exceptions import ChunkedEncodingError, RequestException
+from urllib3.exceptions import ProtocolError
 import yfinance as yf
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-
-from typing import List
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Any
-from requests.exceptions import ChunkedEncodingError, RequestException
-from urllib3.exceptions import ProtocolError
+from pymongo import MongoClient
+from curl_cffi import requests
 
 # Load environment variables
 load_dotenv()
@@ -33,59 +32,63 @@ def setup_logging():
 
 logger = setup_logging()
 
-def get_proxy_session():
-    """
-    Create a session with Webshare proxy configuration.
-    """
-    try:
-        # Get credentials from environment variables
-        username = os.getenv('WEBSHARE_USERNAME')
-        password = os.getenv('WEBSHARE_PASSWORD')
-        
-        if not username or not password:
-            raise ValueError("Webshare proxy credentials not found in environment variables")
-        
-        # Create session with rotating proxy
-        session = requests.Session()
-        proxy_url = f"http://{username}:{password}@p.webshare.io:80/"
-        session.proxies = {
-            "http": proxy_url,
-            "https": proxy_url
-        }
-        
-        # Test the proxy connection
-        test_response = session.get("https://ipv4.webshare.io/")
-        test_response.raise_for_status()
-        logger.info(f"Connected via IP: {test_response.text.strip()}")
-        
-        return session
-    except Exception as e:
-        logger.error(f"Error setting up Webshare proxy: {e}")
-        raise
+def setup_mongodb() -> MongoClient:
+    """Initialize and return a MongoDB client."""
+    mongodb_uri = os.getenv('MONGODB_URI')
+    if not mongodb_uri:
+        raise ValueError("MONGODB_URI not found in environment variables")
+    return MongoClient(mongodb_uri)
 
-def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_delay: int) -> None:
+def upload_to_mongodb(csv_path: str, collection_name: str, batch_size: int = 1000) -> None:
+    """
+    Upload CSV data to MongoDB in batches.
+    
+    Args:
+        csv_path: Path to the CSV file
+        collection_name: Name of the MongoDB collection to upload to
+        batch_size: Number of rows to upload in each batch
+    """
+    logger.info(f"Starting upload to MongoDB collection: {collection_name}")
+    client = setup_mongodb()
+    db = client['algosaham_db']  # Use specific database name
+    collection = db[collection_name]
+    
+    try:
+        # Read the CSV file in chunks
+        for chunk in pd.read_csv(csv_path, chunksize=batch_size):
+            # Convert column names to lowercase
+            chunk.columns = chunk.columns.str.lower()
+            
+            # Convert the chunk to a list of dictionaries
+            records = chunk.to_dict('records')
+            
+            # Upload the batch to MongoDB
+            if records:
+                result = collection.insert_many(records)
+                logger.info(f"Successfully uploaded batch of {len(result.inserted_ids)} records")
+            
+    except Exception as e:
+        logger.error(f"Error during MongoDB upload: {str(e)}")
+        raise
+    finally:
+        client.close()
+
+def fetch_stock_data(symbol: str, max_retries: int, initial_delay: int) -> None:
     """
     Fetch stock data for a given symbol and save it to a CSV file.
     
     Args:
         symbol: Stock symbol to fetch
-        use_proxy: Whether to use proxy for requests
         max_retries: Maximum number of retry attempts
         initial_delay: Initial delay between retries
     """
     logger.info(f"Starting fetch for symbol: {symbol}")
     delay = initial_delay
-    session = None
     
     try:
-        if use_proxy:
-            logger.info(f"Setting up Webshare proxy for {symbol}")
-            session = get_proxy_session()
-            logger.info(f"Webshare proxy ready for {symbol}")
-
         for attempt in range(max_retries):
             try:
-                logger.info(f"Fetching {symbol} with{' ' if use_proxy else ' no '}proxy (Attempt {attempt + 1}/{max_retries})")
+                logger.info(f"Fetching {symbol} (Attempt {attempt + 1}/{max_retries})")
                 
                 # Create a custom handler to capture error logs
                 class ErrorCaptureHandler(logging.Handler):
@@ -105,10 +108,8 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 INTERVAL = os.getenv('INTERVAL')
                 GROUP_BY = os.getenv('GROUP_BY')
 
-                if use_proxy:
-                    df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
-                else:
-                    df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY)
+                session = requests.Session(impersonate="chrome")
+                df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
                     
                 # Check if YFPricesMissingError was logged
                 if any("YFPricesMissingError" in msg or "no price data found" in msg 
@@ -148,8 +149,6 @@ def fetch_stock_data(symbol: str, use_proxy: bool, max_retries: int, initial_del
                 logger.warning(f"Network error while fetching {symbol}: {net_error}")
             except ValueError as ve:
                 logger.warning(f"Value error while fetching {symbol}: {ve}")
-            except Exception as error:
-                logger.error(f"Unexpected error fetching {symbol} with proxy {use_proxy}: {error}")
             
             if attempt < max_retries - 1:
                 wait_time = delay * (2 ** attempt) + random.uniform(0, 1)
@@ -179,20 +178,19 @@ def write_to_csv(data: Any, file_name: str) -> None:
     with open(file_name, 'a', newline='', encoding='utf-8') as f:
         csv.writer(f).writerow(row)
 
-def fetch_async(stock_list: List[str], use_proxy: bool, max_retries: int, initial_delay: int) -> List[str]:
+def fetch_async(stock_list: List[str], max_retries: int, initial_delay: int) -> List[str]:
     """
     Fetch stock data asynchronously for a list of symbols and return list of failed stocks.
     
     Args:
         stock_list: List of stock symbols to fetch
-        use_proxy: Whether to use proxy for requests
         max_retries: Maximum number of retry attempts
         initial_delay: Initial delay between retries
     """
     failed_stocks = []
     with ThreadPoolExecutor(max_workers=int(os.getenv('MAX_WORKERS', 1))) as executor:
         future_to_stock = {
-            executor.submit(fetch_stock_data, symbol, use_proxy, max_retries, initial_delay): symbol 
+            executor.submit(fetch_stock_data, symbol, max_retries, initial_delay): symbol 
             for symbol in stock_list
         }
         for future in concurrent.futures.as_completed(future_to_stock):
@@ -248,7 +246,7 @@ def merge_csv_files() -> None:
     files = glob.glob(f"{os.getenv('DIR_PATH')}/csv/*.csv")
     df = pd.concat((pd.read_csv(f, header=0) for f in files))
     df.to_csv(f"{os.getenv('DIR_PATH')}/results.csv", index=False)
-    df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
+    # df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
 
 def is_empty_csv(path: str) -> bool:
     """Check if a CSV file is empty (contains only header)."""
@@ -268,18 +266,52 @@ def get_stock_list() -> List[str]:
     
     return formatted_codes
 
+def export_stock_list_to_mongodb(csv_path: str) -> None:
+    """
+    Export stock list from CSV to MongoDB.
+    
+    Args:
+        csv_path: Path to the stock list CSV file
+    """
+    logger.info(f"Starting stock list export to MongoDB")
+    client = setup_mongodb()
+    db = client['algosaham_db']
+    collection = db['ticker']
+    
+    try:
+        # Read the CSV file
+        df = pd.read_csv(csv_path)
+        
+        # Convert column names to lowercase
+        df.columns = df.columns.str.lower()
+        
+        # Convert DataFrame to list of dictionaries
+        records = df.to_dict('records')
+        
+        # Clear existing data in the collection
+        collection.delete_many({})
+        
+        # Insert new data
+        if records:
+            result = collection.insert_many(records)
+            logger.info(f"Successfully uploaded {len(result.inserted_ids)} stock records")
+            
+    except Exception as e:
+        logger.error(f"Error during stock list export: {str(e)}")
+        raise
+    finally:
+        client.close()
+
 if __name__ == '__main__':
     # Configuration
-    USE_PROXY = False
     MAX_RETRIES = int(os.getenv('MAX_RETRIES'))
-    INITIAL_DELAY = int(float(os.getenv('INITIAL_DELAY')))  # Convert from float string to int
+    INITIAL_DELAY = int(float(os.getenv('INITIAL_DELAY')))
     
     logger.info("Starting IDX updater...")
     start_time = time.time()
 
     stock_list = get_stock_list()
     logger.info(f"Loaded {len(stock_list)} stocks to process")
-    logger.info(f"Proxy usage is {'enabled' if USE_PROXY else 'disabled'}")
 
     logger.info("Creating required directories and files...")
     os.makedirs("csv", exist_ok=True)
@@ -287,13 +319,21 @@ if __name__ == '__main__':
     open(f"{os.getenv('DIR_PATH')}/results.csv", "w").close()
 
     logger.info("Starting async fetch for all stocks...")
-    fetch_async(stock_list, use_proxy=USE_PROXY, max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)
+    fetch_async(stock_list, max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)
 
     logger.info("Starting retry process for failed fetches...")
     retry_failed_fetches(max_retries=MAX_RETRIES, initial_delay=INITIAL_DELAY)
 
     logger.info("Merging CSV files...")
     merge_csv_files()
+
+    # Upload to MongoDB
+    logger.info("Starting MongoDB upload...")
+    upload_to_mongodb(
+        csv_path=f"{os.getenv('DIR_PATH')}/results.csv",
+        collection_name="daily_market_data",
+        batch_size=1000
+    )
 
     elapsed_time = time.time() - start_time
     logger.info(f"Process completed in {elapsed_time:.2f} seconds")
