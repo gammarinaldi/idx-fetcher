@@ -107,8 +107,11 @@ def store_fundamental_data(data: Dict[str, Any]) -> None:
     collection = db['fundamental_data']
     
     try:
-        # Add created_at field with current date
-        data['created_at'] = pd.Timestamp.now().strftime("%Y-%m-%d")
+        # Convert last_updated to datetime
+        data['last_updated'] = pd.to_datetime(data['last_updated'])
+        
+        # Add created_at field with current date as datetime
+        data['created_at'] = pd.Timestamp.now()
         
         # Insert new document
         collection.insert_one(data)

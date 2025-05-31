@@ -59,6 +59,9 @@ def upload_to_mongodb(csv_path: str, collection_name: str, batch_size: int = 100
             # Convert column names to lowercase
             chunk.columns = chunk.columns.str.lower()
             
+            # Convert date column to datetime
+            chunk['date'] = pd.to_datetime(chunk['date'])
+            
             # Convert the chunk to a list of dictionaries
             records = chunk.to_dict('records')
             
@@ -248,7 +251,7 @@ def is_empty_csv(path: str) -> bool:
     
 def get_stock_list() -> List[str]:
     """
-    Extract stock codes from the CSV file and format them.
+    Get list of stock codes from CSV file and format them.
     """
     csv_path = os.getenv('DIR_PATH') + "/" + os.getenv('STOCK_LIST_PATH')
     df = pd.read_csv(csv_path)
@@ -303,7 +306,7 @@ if __name__ == '__main__':
     logger.info("Starting IDX updater...")
     start_time = time.time()
 
-    stock_list = ["^JKSE"]
+    stock_list = get_stock_list()
     logger.info(f"Loaded {len(stock_list)} stocks to process")
 
     logger.info("Creating required directories and files...")
