@@ -262,42 +262,6 @@ def get_stock_list() -> List[str]:
     
     return formatted_codes
 
-def export_stock_list_to_mongodb(csv_path: str) -> None:
-    """
-    Export stock list from CSV to MongoDB.
-    
-    Args:
-        csv_path: Path to the stock list CSV file
-    """
-    logger.info(f"Starting stock list export to MongoDB")
-    client = setup_mongodb()
-    db = client['algosaham_db']
-    collection = db['ticker']
-    
-    try:
-        # Read the CSV file
-        df = pd.read_csv(csv_path)
-        
-        # Convert column names to lowercase
-        df.columns = df.columns.str.lower()
-        
-        # Convert DataFrame to list of dictionaries
-        records = df.to_dict('records')
-        
-        # Clear existing data in the collection
-        collection.delete_many({})
-        
-        # Insert new data
-        if records:
-            result = collection.insert_many(records)
-            logger.info(f"Successfully uploaded {len(result.inserted_ids)} stock records")
-            
-    except Exception as e:
-        logger.error(f"Error during stock list export: {str(e)}")
-        raise
-    finally:
-        client.close()
-
 if __name__ == '__main__':
     # Configuration
     MAX_RETRIES = int(os.getenv('MAX_RETRIES'))
@@ -323,13 +287,17 @@ if __name__ == '__main__':
     logger.info("Merging CSV files...")
     merge_csv_files()
 
-    # Upload to MongoDB
-    logger.info("Starting MongoDB upload...")
-    upload_to_mongodb(
-        csv_path=f"{os.getenv('DIR_PATH')}/results.csv",
-        collection_name="daily_market_data",
-        batch_size=1000
-    )
+    # Check if MongoDB upload is enabled
+    if os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE':
+        # Upload to MongoDB
+        logger.info("Starting MongoDB upload...")
+        upload_to_mongodb(
+            csv_path=f"{os.getenv('DIR_PATH')}/results.csv",
+            collection_name="daily_market_data",
+            batch_size=1000
+        )
+    else:
+        logger.info("MongoDB upload skipped as UPLOAD_TO_MONGODB is set to FALSE")
 
     elapsed_time = time.time() - start_time
     logger.info(f"Process completed in {elapsed_time:.2f} seconds")

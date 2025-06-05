@@ -3,5 +3,5 @@ __pycache__
 csv/
 .env
 .venv/
-results.csv
-results.gama
+*.csv
+*.gama
