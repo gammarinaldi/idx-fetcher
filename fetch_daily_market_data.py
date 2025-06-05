@@ -189,19 +189,23 @@ def fetch_async(stock_list: List[str], max_retries: int, initial_delay: int) -> 
             executor.submit(fetch_stock_data, symbol, max_retries, initial_delay): symbol 
             for symbol in stock_list
         }
+        
         for future in concurrent.futures.as_completed(future_to_stock):
             symbol = future_to_stock[future]
             try:
                 result = future.result()
+                
                 if result is not None:
                     logger.error(f"Async result error for {symbol}")
                     logger.error(result)
                     failed_stocks.append(symbol)
+                    
             except Exception as error:
                 logger.error(f"Exception error occurred for {symbol}:")
                 logger.error(error)
                 logger.error(traceback.format_exc())
                 failed_stocks.append(symbol)
+                
     return failed_stocks
 
 def retry_failed_fetches(max_retries: int, initial_delay: int) -> None:
@@ -257,8 +261,13 @@ def get_stock_list() -> List[str]:
     df = pd.read_csv(csv_path)
     stock_codes = df['Kode'].tolist()
     
-    # Add '.JK' to each stock code
-    formatted_codes = [f"{code}.JK" for code in stock_codes]
+    # Format stock codes with special handling for JKSE
+    formatted_codes = []
+    for code in stock_codes:
+        if code == "JKSE":
+            formatted_codes.append("^JKSE")
+        else:
+            formatted_codes.append(f"{code}.JK")
     
     return formatted_codes
 
