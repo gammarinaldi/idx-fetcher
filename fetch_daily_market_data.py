@@ -246,7 +246,7 @@ def merge_csv_files() -> None:
     files = glob.glob(f"{os.getenv('DIR_PATH')}/csv/*.csv")
     df = pd.concat((pd.read_csv(f, header=0) for f in files))
     df.to_csv(f"{os.getenv('DIR_PATH')}/results.csv", index=False)
-    # df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
+    df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
 
 def is_empty_csv(path: str) -> bool:
     """Check if a CSV file is empty (contains only header)."""
