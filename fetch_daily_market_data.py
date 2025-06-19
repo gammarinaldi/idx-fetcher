@@ -19,7 +19,7 @@ from pymongo import MongoClient
 from curl_cffi import requests
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 def setup_logging():
     """Configure logging with timestamp, level, and message."""
@@ -39,9 +39,36 @@ def setup_mongodb() -> MongoClient:
         raise ValueError("MONGODB_URI not found in environment variables")
     return MongoClient(mongodb_uri)
 
+def create_mongodb_indexes(collection_name: str) -> None:
+    """
+    Create indexes for the MongoDB collection to ensure uniqueness and query performance.
+    
+    Args:
+        collection_name: Name of the MongoDB collection
+    """
+    logger.info(f"Creating indexes for collection: {collection_name}")
+    client = setup_mongodb()
+    db = client['algosaham_db']
+    collection = db[collection_name]
+    
+    try:
+        # Create compound unique index on date and ticker to prevent duplicates
+        collection.create_index([("date", 1), ("ticker", 1)], unique=True, background=True)
+        logger.info("Successfully created unique compound index on (date, ticker)")
+        
+        # Create individual indexes for common queries
+        collection.create_index([("date", 1)], background=True)
+        collection.create_index([("ticker", 1)], background=True)
+        logger.info("Successfully created individual indexes on date and ticker")
+        
+    except Exception as e:
+        logger.warning(f"Index creation warning (may already exist): {str(e)}")
+    finally:
+        client.close()
+
 def upload_to_mongodb(csv_path: str, collection_name: str, batch_size: int = 1000) -> None:
     """
-    Upload CSV data to MongoDB in batches.
+    Upload CSV data to MongoDB in batches with duplicate handling using upsert operations.
     
     Args:
         csv_path: Path to the CSV file
@@ -54,8 +81,16 @@ def upload_to_mongodb(csv_path: str, collection_name: str, batch_size: int = 100
     collection = db[collection_name]
     
     try:
+        # Create indexes if they don't exist
+        create_mongodb_indexes(collection_name)
+        
+        total_updated = 0
+        total_inserted = 0
+        
         # Read the CSV file in chunks
-        for chunk in pd.read_csv(csv_path, chunksize=batch_size):
+        for chunk_num, chunk in enumerate(pd.read_csv(csv_path, chunksize=batch_size)):
+            logger.info(f"Processing chunk {chunk_num + 1}")
+            
             # Convert column names to lowercase
             chunk.columns = chunk.columns.str.lower()
             
@@ -65,10 +100,35 @@ def upload_to_mongodb(csv_path: str, collection_name: str, batch_size: int = 100
             # Convert the chunk to a list of dictionaries
             records = chunk.to_dict('records')
             
-            # Upload the batch to MongoDB
+            # Use upsert operations to handle duplicates
             if records:
-                result = collection.insert_many(records)
-                logger.info(f"Successfully uploaded batch of {len(result.inserted_ids)} records")
+                batch_updated = 0
+                batch_inserted = 0
+                
+                for record in records:
+                    try:
+                        # Use upsert to either insert new or update existing record
+                        result = collection.replace_one(
+                            {"date": record["date"], "ticker": record["ticker"]},
+                            record,
+                            upsert=True
+                        )
+                        
+                        if result.upserted_id:
+                            batch_inserted += 1
+                        elif result.modified_count > 0:
+                            batch_updated += 1
+                            
+                    except Exception as record_error:
+                        logger.warning(f"Error processing record {record.get('ticker', 'unknown')} on {record.get('date', 'unknown')}: {str(record_error)}")
+                        continue
+                
+                total_updated += batch_updated
+                total_inserted += batch_inserted
+                
+                logger.info(f"Batch complete - Inserted: {batch_inserted}, Updated: {batch_updated}")
+        
+        logger.info(f"Upload complete - Total Inserted: {total_inserted}, Total Updated: {total_updated}")
             
     except Exception as e:
         logger.error(f"Error during MongoDB upload: {str(e)}")
