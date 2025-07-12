@@ -17,6 +17,7 @@ import requests
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from curl_cffi import requests
+from datetime import datetime
 
 # Load environment variables
 load_dotenv(override=True)
@@ -31,6 +32,40 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+def is_holiday() -> bool:
+    """
+    Check if today is a holiday using the holiday API.
+    
+    Returns:
+        bool: True if today is a holiday, False otherwise
+    """
+    try:
+        today = datetime.now()
+        month = today.month
+        year = today.year
+        
+        # Call holiday API
+        response = requests.get(f"https://dayoffapi.vercel.app/api?month={month}&year={year}")
+        if response.status_code == 200:
+            holidays = response.json()
+            today_str = today.strftime("%Y-%m-%d")
+            
+            # Check if today is in the holiday list
+            for holiday in holidays:
+                # Convert holiday date to match format (add leading zero if needed)
+                holiday_date = holiday["tanggal"]
+                if len(holiday_date.split("-")[2]) == 1:  # If day is single digit
+                    parts = holiday_date.split("-")
+                    holiday_date = f"{parts[0]}-{parts[1]}-0{parts[2]}"
+                
+                if holiday_date == today_str:
+                    logger.info(f"Today is a holiday: {holiday['keterangan']}")
+                    return True
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking holiday: {str(e)}")
+        return False
 
 def setup_mongodb() -> MongoClient:
     """Initialize and return a MongoDB client."""
@@ -337,6 +372,12 @@ if __name__ == '__main__':
     INITIAL_DELAY = int(float(os.getenv('INITIAL_DELAY')))
     
     logger.info("Starting IDX updater...")
+    
+    # Check if today is a holiday
+    if is_holiday():
+        logger.info("Happy holiday :) Skipping market data fetch process.")
+        exit()
+    
     start_time = time.time()
 
     stock_list = get_stock_list()
