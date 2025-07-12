@@ -17,8 +17,8 @@ services:
       - UPLOAD_TO_MONGODB=${UPLOAD_TO_MONGODB:-FALSE}
       - DIR_PATH=${DIR_PATH:-/app}
       - STOCK_LIST_PATH=${STOCK_LIST_PATH:-stock_list.csv}
-      # Holiday checking is enabled by default
-      - ENABLE_HOLIDAY_CHECK=${ENABLE_HOLIDAY_CHECK:-TRUE}
+      # Market closed checking is enabled by default
+      - ENABLE_MARKET_CLOSED_CHECK=${ENABLE_MARKET_CLOSED_CHECK:-TRUE}
     volumes:
       # Mount the data directory to persist CSV files and logs
       - ./data:/app/data

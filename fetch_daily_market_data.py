@@ -33,15 +33,22 @@ def setup_logging():
 
 logger = setup_logging()
 
-def is_holiday() -> bool:
+def is_market_closed() -> bool:
     """
-    Check if today is a holiday using the holiday API.
+    Check if today is a market holiday or weekend.
     
     Returns:
-        bool: True if today is a holiday, False otherwise
+        bool: True if market is closed (holiday or weekend), False otherwise
     """
+    today = datetime.now()
+    
+    # Check if it's weekend (Saturday = 5, Sunday = 6)
+    if today.weekday() >= 5:  # Saturday or Sunday
+        logger.info(f"Today is weekend ({today.strftime('%A')}) - Market is closed")
+        return True
+    
+    # Check if it's a holiday
     try:
-        today = datetime.now()
         month = today.month
         year = today.year
         
@@ -373,9 +380,9 @@ if __name__ == '__main__':
     
     logger.info("Starting IDX updater...")
     
-    # Check if today is a holiday
-    if is_holiday():
-        logger.info("Happy holiday :) Skipping market data fetch process.")
+    # Check if market is closed (weekend or holiday)
+    if is_market_closed():
+        logger.info("Market is closed (weekend or holiday) - Skipping market data fetch process.")
         exit()
     
     start_time = time.time()

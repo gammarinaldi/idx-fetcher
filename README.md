@@ -11,7 +11,7 @@ Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/d
 - Use proxy to fetch data
 - Enable/disable proxy usage
 - Automated daily scheduling at 21:00 UTC+7
-- Indonesian holiday detection (skips execution on holidays)
+- Indonesian holiday and weekend detection (skips execution when market is closed)
 
 ## Installation
 
@@ -156,5 +156,5 @@ docker-compose up -d
 Copy `env.example` to `.env` and configure:
 - `MONGODB_URI`: Your MongoDB connection string
 - `UPLOAD_TO_MONGODB`: Set to `TRUE` to enable MongoDB upload
-- `ENABLE_HOLIDAY_CHECK`: Set to `TRUE` to skip execution on Indonesian holidays (default: TRUE)
+- `ENABLE_MARKET_CLOSED_CHECK`: Set to `TRUE` to skip execution on weekends and Indonesian holidays (default: TRUE)
 - Other variables as needed
