@@ -13,6 +13,16 @@ log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'scheduler.log')
 
+# Try to create the log file with proper permissions
+try:
+    # Touch the log file to ensure it exists and has proper permissions
+    with open(log_file, 'a') as f:
+        pass
+except PermissionError:
+    # If we can't write to the logs directory, fall back to current directory
+    log_file = 'scheduler.log'
+    print(f"Warning: Cannot write to logs directory, using {log_file} instead")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',

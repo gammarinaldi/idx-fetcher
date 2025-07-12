@@ -124,6 +124,29 @@ docker-compose build
 docker-compose up -d
 ```
 
+### Troubleshooting
+
+#### Permission Issues
+If you encounter permission errors, run the fix script:
+```bash
+chmod +x fix_permissions.sh
+./fix_permissions.sh
+```
+
+Or manually fix permissions:
+```bash
+# Stop the container
+docker-compose down
+
+# Fix permissions
+sudo chown -R 1000:1000 data logs
+chmod 755 data logs
+
+# Rebuild and restart
+docker-compose build --no-cache
+docker-compose up -d
+```
+
 ### Data Persistence
 - CSV files and results: `./data/`
 - Scheduler logs: `./logs/`

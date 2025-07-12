@@ -26,6 +26,7 @@ services:
       - ./logs:/app/logs
       # Mount the stock list CSV file
       - ./stock_list.csv:/app/stock_list.csv:ro
+    user: "1000:1000"
     networks:
       - idx-network
     healthcheck:

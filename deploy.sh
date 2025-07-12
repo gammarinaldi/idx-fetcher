@@ -22,6 +22,11 @@ fi
 echo "📁 Creating directories..."
 mkdir -p data logs
 
+# Set proper permissions for Docker volumes
+echo "🔐 Setting directory permissions..."
+chmod 755 data logs
+chown -R 1000:1000 data logs 2>/dev/null || echo "Warning: Could not change ownership (may need sudo)"
+
 # Check if .env file exists
 if [ ! -f .env ]; then
     echo "⚠️  .env file not found. Creating from example..."
