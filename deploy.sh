@@ -13,7 +13,7 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
+if ! command -v docker compose &> /dev/null; then
     echo "❌ Docker Compose is not installed. Please install Docker Compose first."
     exit 1
 fi
@@ -44,23 +44,23 @@ fi
 
 # Build and start the containers
 echo "🔨 Building Docker image..."
-docker-compose build
+docker compose build
 
 echo "🚀 Starting scheduler service..."
-docker-compose up -d
+docker compose up -d
 
 # Check if the service is running
 echo "⏳ Waiting for service to start..."
 sleep 10
 
-if docker-compose ps | grep -q "Up"; then
+if docker compose ps | grep -q "Up"; then
     echo "✅ Scheduler is running successfully!"
     echo ""
     echo "📊 Useful commands:"
-    echo "  View logs: docker-compose logs -f"
-    echo "  Stop service: docker-compose down"
-    echo "  Restart service: docker-compose restart"
-    echo "  View status: docker-compose ps"
+    echo "  View logs: docker compose logs -f"
+    echo "  Stop service: docker compose down"
+    echo "  Restart service: docker compose restart"
+    echo "  View status: docker compose ps"
     echo ""
     echo "📁 Data and logs are stored in:"
     echo "  - ./data/ (CSV files and results)"
@@ -68,6 +68,6 @@ if docker-compose ps | grep -q "Up"; then
     echo ""
     echo "🕐 The scheduler will run fetch_daily_market_data.py every day at 21:00 UTC+7"
 else
-    echo "❌ Service failed to start. Check logs with: docker-compose logs"
+    echo "❌ Service failed to start. Check logs with: docker compose logs"
     exit 1
 fi 
