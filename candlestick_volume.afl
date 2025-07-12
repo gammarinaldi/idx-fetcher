@@ -1,0 +1,36 @@
+// =====================================================
+// AmiBroker Formula Language (AFL) - Candlestick & Volume
+// =====================================================
+
+// Set chart type to candlestick
+SetChartType(1); // 1 = candlestick chart
+
+// Plot candlestick chart
+PlotOHLC(Open, High, Low, Close, "Candlestick", 
+         IIf(Close > Open, colorGreen, colorRed), 
+         styleCandle);
+
+// Plot volume bars
+Plot(Volume, "Volume", colorBlue, styleHistogram | styleOwnScale);
+
+// Add volume moving average for reference
+Plot(MA(Volume, 20), "Volume MA(20)", colorRed, styleLine | styleOwnScale);
+
+// Optional: Add price moving averages
+Plot(MA(Close, 20), "MA(20)", colorBlue, styleLine);
+Plot(MA(Close, 50), "MA(50)", colorRed, styleLine);
+
+// Set chart title
+Title = Name() + " - Candlestick with Volume";
+
+// Optional: Add more volume analysis
+// Volume price trend
+Plot(Cum(Volume * (Close - Ref(Close, -1))), "VPT", colorPurple, styleLine | styleOwnScale);
+
+// On Balance Volume (OBV)
+Plot(Cum(IIf(Close > Ref(Close, -1), Volume, IIf(Close < Ref(Close, -1), -Volume, 0))), 
+     "OBV", colorOrange, styleLine | styleOwnScale);
+
+// Volume Rate of Change
+Plot((Volume - Ref(Volume, -10)) / Ref(Volume, -10) * 100, 
+     "Volume ROC", colorBrown, styleLine | styleOwnScale); 

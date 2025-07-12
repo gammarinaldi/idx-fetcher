@@ -1,0 +1,76 @@
+// =====================================================
+// Advanced AmiBroker Formula Language (AFL) - Candlestick & Volume Analysis
+// =====================================================
+
+// Set chart type to candlestick
+SetChartType(1);
+
+// Plot candlestick chart with enhanced colors
+PlotOHLC(Open, High, Low, Close, "Candlestick", 
+         IIf(Close > Open, colorBrightGreen, colorRed), 
+         styleCandle);
+
+// Plot volume with color coding based on price movement
+VolumeColor = IIf(Close > Open, colorGreen, colorRed);
+Plot(Volume, "Volume", VolumeColor, styleHistogram | styleOwnScale);
+
+// Volume moving averages
+Plot(MA(Volume, 10), "Volume MA(10)", colorYellow, styleLine | styleOwnScale);
+Plot(MA(Volume, 20), "Volume MA(20)", colorOrange, styleLine | styleOwnScale);
+
+// Price moving averages
+Plot(MA(Close, 10), "MA(10)", colorYellow, styleLine);
+Plot(MA(Close, 20), "MA(20)", colorOrange, styleLine);
+Plot(MA(Close, 50), "MA(50)", colorRed, styleLine);
+
+// Bollinger Bands
+BBPeriod = 20;
+BBMultiplier = 2;
+BBMiddle = MA(Close, BBPeriod);
+BBStd = StDev(Close, BBPeriod);
+BBUpper = BBMiddle + BBMultiplier * BBStd;
+BBLower = BBMiddle - BBMultiplier * BBStd;
+
+Plot(BBUpper, "BB Upper", colorLightBlue, styleLine);
+Plot(BBLower, "BB Lower", colorLightBlue, styleLine);
+
+// Volume indicators
+// On Balance Volume (OBV)
+OBV = Cum(IIf(Close > Ref(Close, -1), Volume, IIf(Close < Ref(Close, -1), -Volume, 0)));
+Plot(OBV, "OBV", colorPurple, styleLine | styleOwnScale);
+
+// Volume Rate of Change
+VolumeROC = (Volume - Ref(Volume, -10)) / Ref(Volume, -10) * 100;
+Plot(VolumeROC, "Volume ROC", colorBrown, styleLine | styleOwnScale);
+
+// Volume Price Trend (VPT)
+VPT = Cum(Volume * (Close - Ref(Close, -1)));
+Plot(VPT, "VPT", colorMagenta, styleLine | styleOwnScale);
+
+// Candlestick patterns detection
+// Doji pattern (open and close are very close)
+DojiThreshold = 0.1; // 0.1% threshold
+IsDoji = abs(Close - Open) <= (High - Low) * DojiThreshold / 100;
+PlotShapes(IIf(IsDoji, shapeCircle, shapeNone), colorYellow, 0, Low, -10);
+
+// Hammer pattern
+IsHammer = (High - Low) > 3 * (High - Close) AND (High - Low) > 3 * (Open - Low);
+PlotShapes(IIf(IsHammer, shapeUpArrow, shapeNone), colorGreen, 0, Low, -15);
+
+// Shooting Star pattern
+IsShootingStar = (High - Low) > 3 * (Close - Low) AND (High - Low) > 3 * (High - Open);
+PlotShapes(IIf(IsShootingStar, shapeDownArrow, shapeNone), colorRed, 0, High, 15);
+
+// Set chart title with additional info
+Title = Name() + " - Advanced Candlestick & Volume Analysis\n" +
+        "Green candles = bullish, Red candles = bearish\n" +
+        "Volume color matches price direction";
+
+// Add volume analysis text
+VolumeAnalysis = "";
+if (Volume > MA(Volume, 20) * 1.5) VolumeAnalysis = "High Volume";
+else if (Volume < MA(Volume, 20) * 0.5) VolumeAnalysis = "Low Volume";
+else VolumeAnalysis = "Normal Volume";
+
+// Display volume analysis
+PlotText(VolumeAnalysis, BarCount - 10, High + (High - Low) * 0.1, colorWhite); 

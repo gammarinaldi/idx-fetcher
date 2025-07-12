@@ -10,6 +10,7 @@ Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/d
 - Retry failed fetches
 - Use proxy to fetch data
 - Enable/disable proxy usage
+- Automated daily scheduling at 21:00 UTC+7
 
 ## Installation
 
@@ -19,9 +20,42 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Manual Execution
+
 ```bash
-python index.py
+python fetch_daily_market_data.py
 ```
+
+### Automated Scheduling
+
+To run the script automatically every day at 21:00 UTC+7:
+
+#### Option 1: Using Python directly
+```bash
+python scheduler.py
+```
+
+#### Option 2: Using the batch file (Windows)
+```bash
+start_scheduler.bat
+```
+
+#### Option 3: Using Docker (Recommended for VPS)
+```bash
+# Quick deployment
+./deploy.sh
+
+# Or manually:
+docker-compose up -d
+```
+
+The scheduler will:
+- Run `fetch_daily_market_data.py` every day at 21:00 UTC+7
+- Log all activities to `scheduler.log`
+- Display real-time status in the console
+- Handle errors gracefully and continue scheduling
+
+To stop the scheduler, press `Ctrl+C` (for local) or use `docker-compose down` (for Docker).
 
 ## Example
 
@@ -37,3 +71,65 @@ Refer to [yfinance](https://pypi.org/project/yfinance/) for more information.
 ```python
 df = yf.download(symbol, period="10y", interval="1d", group_by="ticker", proxy=proxy)
 ```
+
+## Docker Deployment (VPS)
+
+### Prerequisites
+- Docker and Docker Compose installed on your VPS
+- Stock list CSV file (`stock_list.csv`) with a 'Kode' column
+
+### Quick Deployment
+1. Upload your project files to the VPS
+2. Ensure you have `stock_list.csv` in the project directory
+3. Run the deployment script:
+   ```bash
+   ./deploy.sh
+   ```
+
+### Manual Deployment
+1. Create environment file:
+   ```bash
+   cp env.example .env
+   # Edit .env with your configuration
+   ```
+
+2. Create directories:
+   ```bash
+   mkdir -p data logs
+   ```
+
+3. Build and start:
+   ```bash
+   docker-compose up -d
+   ```
+
+### Docker Commands
+```bash
+# View logs
+docker-compose logs -f
+
+# Stop service
+docker-compose down
+
+# Restart service
+docker-compose restart
+
+# View status
+docker-compose ps
+
+# Update and restart
+docker-compose down
+docker-compose build
+docker-compose up -d
+```
+
+### Data Persistence
+- CSV files and results: `./data/`
+- Scheduler logs: `./logs/`
+- Stock list: `./stock_list.csv` (mounted as read-only)
+
+### Environment Variables
+Copy `env.example` to `.env` and configure:
+- `MONGODB_URI`: Your MongoDB connection string
+- `UPLOAD_TO_MONGODB`: Set to `TRUE` to enable MongoDB upload
+- Other variables as needed

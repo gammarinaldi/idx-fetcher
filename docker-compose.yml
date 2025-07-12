@@ -1,0 +1,43 @@
+services:
+  idx-scheduler:
+    build: .
+    container_name: idx-fetcher-scheduler
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Jakarta
+      - PYTHONUNBUFFERED=1
+      # Add your environment variables here or use .env file
+      - MONGODB_URI=${MONGODB_URI}
+      - PERIOD=${PERIOD:-1d}
+      - INTERVAL=${INTERVAL:-1d}
+      - GROUP_BY=${GROUP_BY:-ticker}
+      - MAX_WORKERS=${MAX_WORKERS:-1}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - INITIAL_DELAY=${INITIAL_DELAY:-1}
+      - UPLOAD_TO_MONGODB=${UPLOAD_TO_MONGODB:-FALSE}
+      - DIR_PATH=${DIR_PATH:-/app}
+      - STOCK_LIST_PATH=${STOCK_LIST_PATH:-stock_list.csv}
+    volumes:
+      # Mount the data directory to persist CSV files and logs
+      - ./data:/app/data
+      # Mount logs directory for easy access
+      - ./logs:/app/logs
+      # Mount the stock list CSV file
+      - ./stock_list.csv:/app/stock_list.csv:ro
+    networks:
+      - idx-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import schedule; print('Scheduler is healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  idx-network:
+    driver: bridge 

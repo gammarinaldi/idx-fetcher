@@ -3,3 +3,6 @@ pandas
 requests
 python-dotenv
 pymongo
+schedule
+pytz
+curl-cffi

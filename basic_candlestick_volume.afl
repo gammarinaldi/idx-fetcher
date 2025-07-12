@@ -1,0 +1,17 @@
+// =====================================================
+// Basic AmiBroker Formula Language (AFL) - Candlestick & Volume
+// =====================================================
+
+// Set chart type to candlestick
+SetChartType(1);
+
+// Plot candlestick chart with green/red colors
+PlotOHLC(Open, High, Low, Close, "Candlestick", 
+         IIf(Close > Open, colorGreen, colorRed), 
+         styleCandle);
+
+// Plot volume as histogram
+Plot(Volume, "Volume", colorBlue, styleHistogram | styleOwnScale);
+
+// Set chart title
+Title = Name() + " - Candlestick with Volume"; 

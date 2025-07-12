@@ -3,4 +3,5 @@ csv/
 .env
 .venv/
 *.csv
+!stock_list.csv
 *.gama
