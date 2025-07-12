@@ -4,7 +4,7 @@ echo "🔧 Fixing permissions for IDX Fetcher..."
 
 # Stop the container if running
 echo "🛑 Stopping container..."
-docker-compose down
+docker compose down
 
 # Create directories with proper permissions
 echo "📁 Creating directories with proper permissions..."
@@ -22,11 +22,11 @@ fi
 
 # Rebuild and start
 echo "🔨 Rebuilding container..."
-docker-compose build --no-cache
+docker compose build --no-cache
 
 echo "🚀 Starting container..."
-docker-compose up -d
+docker compose up -d
 
 echo "✅ Permission fix complete!"
-echo "📊 Check status with: docker-compose ps"
-echo "📋 Check logs with: docker-compose logs -f" 
+echo "📊 Check status with: docker compose ps"
+echo "📋 Check logs with: docker compose logs -f" 
