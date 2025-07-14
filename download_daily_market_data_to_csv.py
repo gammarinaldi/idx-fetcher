@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +35,10 @@ def download_daily_market_data_to_csv(output_file: str = None) -> None:
     """
     logger.info("Starting download of daily_market_data collection to CSV")
     
+    # Generate output filename if not provided
+    if output_file is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"daily_market_data_{timestamp}.csv"
     
     client = setup_mongodb()
     db = client['algosaham_db']
@@ -44,17 +49,17 @@ def download_daily_market_data_to_csv(output_file: str = None) -> None:
         total_documents = collection.count_documents({})
         logger.info(f"Found {total_documents} documents in daily_market_data collection")
         
-        # Fetch all documents from the collection with default sorting by date ascending
+        if total_documents == 0:
+            logger.warning("No documents found in daily_market_data collection")
+            return
+        
+        # Fetch all documents from the collection
         logger.info("Fetching all documents from daily_market_data collection...")
         cursor = collection.find({}).sort("date", 1)
         
         # Convert cursor to list of dictionaries
         documents = list(cursor)
         logger.info(f"Successfully fetched {len(documents)} documents")
-        
-        if len(documents) == 0:
-            logger.warning("No documents found in daily_market_data collection")
-            return
         
         # Convert to DataFrame
         df = pd.DataFrame(documents)
@@ -99,6 +104,12 @@ def download_with_filters(output_file: str = None, filters: dict = None, sort_by
     """
     logger.info("Starting filtered download of daily_market_data collection to CSV")
     
+    # Generate output filename if not provided
+    if output_file is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filter_suffix = "_filtered" if filters else ""
+        output_file = f"daily_market_data{filter_suffix}_{timestamp}.csv"
+    
     client = setup_mongodb()
     db = client['algosaham_db']
     collection = db['daily_market_data']
@@ -109,24 +120,22 @@ def download_with_filters(output_file: str = None, filters: dict = None, sort_by
         total_documents = collection.count_documents(query)
         logger.info(f"Found {total_documents} documents matching filters: {query}")
         
-        # Fetch documents with default sorting by date ascending
-        logger.info("Fetching documents from daily_market_data collection...")
-        cursor = collection.find(query).sort("date", 1)
+        if total_documents == 0:
+            logger.warning("No documents found matching the specified filters")
+            return
         
-        # Apply custom sorting if specified (overrides default)
+        # Fetch documents with optional sorting
+        logger.info("Fetching documents from daily_market_data collection...")
+        cursor = collection.find(query)
+        
+        # Apply sorting if specified
         if sort_by:
-            cursor = collection.find(query).sort(sort_by, 1 if not sort_by.startswith('-') else -1)
+            cursor = cursor.sort(sort_by, 1 if not sort_by.startswith('-') else -1)
             logger.info(f"Sorting by: {sort_by}")
-        else:
-            logger.info("Using default sorting by date ascending")
         
         # Convert cursor to list of dictionaries
         documents = list(cursor)
         logger.info(f"Successfully fetched {len(documents)} documents")
-        
-        if len(documents) == 0:
-            logger.warning("No documents found matching the specified filters")
-            return
         
         # Convert to DataFrame
         df = pd.DataFrame(documents)
@@ -168,29 +177,30 @@ def get_collection_stats() -> None:
         
         if total_documents == 0:
             logger.warning("Collection is empty")
-        else:
-            # Get unique tickers
-            unique_tickers = collection.distinct("ticker")
-            logger.info(f"Unique tickers: {len(unique_tickers)}")
-            logger.info(f"Sample tickers: {unique_tickers[:10]}")
-            
-            # Get date range
-            date_stats = collection.aggregate([
-                {"$group": {
-                    "_id": None,
-                    "min_date": {"$min": "$date"},
-                    "max_date": {"$max": "$date"}
-                }}
-            ])
-            
-            date_info = list(date_stats)
-            if date_info:
-                logger.info(f"Date range: {date_info[0]['min_date']} to {date_info[0]['max_date']}")
-            
-            # Get sample document structure
-            sample_doc = collection.find_one()
-            if sample_doc:
-                logger.info(f"Document structure: {list(sample_doc.keys())}")
+            return
+        
+        # Get unique tickers
+        unique_tickers = collection.distinct("ticker")
+        logger.info(f"Unique tickers: {len(unique_tickers)}")
+        logger.info(f"Sample tickers: {unique_tickers[:10]}")
+        
+        # Get date range
+        date_stats = collection.aggregate([
+            {"$group": {
+                "_id": None,
+                "min_date": {"$min": "$date"},
+                "max_date": {"$max": "$date"}
+            }}
+        ])
+        
+        date_info = list(date_stats)
+        if date_info:
+            logger.info(f"Date range: {date_info[0]['min_date']} to {date_info[0]['max_date']}")
+        
+        # Get sample document structure
+        sample_doc = collection.find_one()
+        if sample_doc:
+            logger.info(f"Document structure: {list(sample_doc.keys())}")
         
     except Exception as e:
         logger.error(f"Error getting collection stats: {str(e)}")
@@ -220,4 +230,4 @@ if __name__ == '__main__':
             
     except Exception as e:
         logger.error(f"Script failed: {str(e)}")
-        exit(1) 
+        exit(1)
