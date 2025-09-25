@@ -124,10 +124,10 @@ def get_next_run_time():
     utc7_tz = pytz.timezone('Asia/Jakarta')  # UTC+7 timezone
     now = datetime.now(utc7_tz)
     
-    # Schedule for 21:00 UTC+7
-    next_run = now.replace(hour=21, minute=0, second=0, microsecond=0)
+    # Schedule for 19:00 UTC+7
+    next_run = now.replace(hour=19, minute=0, second=0, microsecond=0)
     
-    # If it's already past 21:00 today, schedule for tomorrow
+    # If it's already past 19:00 today, schedule for tomorrow
     if now.time() >= next_run.time():
         next_run = next_run.replace(day=next_run.day + 1)
     
@@ -137,8 +137,8 @@ def main():
     """Main function to set up and run the scheduler."""
     logger.info("Starting IDX Fetcher Scheduler")
     
-    # Set up the schedule to run at 21:00 UTC+7 every day
-    schedule.every().day.at("21:00").do(run_fetch_script)
+    # Set up the schedule to run at 19:00 UTC+7 every day
+    schedule.every().day.at("19:00").do(run_fetch_script)
     
     # Log the next scheduled run
     next_run = get_next_run_time()

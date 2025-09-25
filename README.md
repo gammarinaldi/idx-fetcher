@@ -10,7 +10,7 @@ Stocks list source: [idx.co.id](https://www.idx.co.id/id/data-pasar/data-saham/d
 - Retry failed fetches
 - Use proxy to fetch data
 - Enable/disable proxy usage
-- Automated daily scheduling at 21:00 UTC+7
+- Automated daily scheduling at 19:00 UTC+7
 - Indonesian holiday and weekend detection (skips execution when market is closed)
 
 ## Installation
