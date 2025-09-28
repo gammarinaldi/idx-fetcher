@@ -24,6 +24,8 @@ services:
       - ./data:/app/data
       # Mount logs directory for easy access
       - ./logs:/app/logs
+      # Mount csv directory to persist individual stock CSV files
+      - ./csv:/app/csv
       # Mount the stock list CSV file
       - ./stock_list.csv:/app/stock_list.csv:ro
     user: "1000:1000"

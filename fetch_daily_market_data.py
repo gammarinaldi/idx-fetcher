@@ -345,10 +345,36 @@ def retry_failed_fetches(max_retries: int, initial_delay: int) -> None:
 
 def merge_csv_files() -> None:
     """Merge all individual stock CSV files into a single result file."""
-    files = glob.glob(f"{os.getenv('DIR_PATH')}/csv/*.csv")
-    df = pd.concat((pd.read_csv(f, header=0) for f in files))
-    df.to_csv(f"{os.getenv('DIR_PATH')}/results.csv", index=False)
-    df.to_csv(f"{os.getenv('DIR_PATH')}/results.gama", index=False)
+    csv_dir = f"{os.getenv('DIR_PATH')}/csv"
+    files = glob.glob(f"{csv_dir}/*.csv")
+    
+    if not files:
+        logger.error(f"No CSV files found in directory: {csv_dir}")
+        logger.error("This usually means the CSV files were not created or the directory is not accessible.")
+        logger.error("Please check:")
+        logger.error("1. If the csv directory exists and is writable")
+        logger.error("2. If the volume mount is correctly configured in docker-compose.yml")
+        logger.error("3. If the stock data fetching process completed successfully")
+        raise ValueError(f"No CSV files found in directory: {csv_dir}")
+    
+    logger.info(f"Found {len(files)} CSV files to merge")
+    
+    try:
+        df = pd.concat((pd.read_csv(f, header=0) for f in files))
+        logger.info(f"Successfully merged {len(files)} CSV files into DataFrame with shape: {df.shape}")
+        
+        # Save to results files
+        results_csv = f"{os.getenv('DIR_PATH')}/results.csv"
+        results_gama = f"{os.getenv('DIR_PATH')}/results.gama"
+        
+        df.to_csv(results_csv, index=False)
+        df.to_csv(results_gama, index=False)
+        
+        logger.info(f"Results saved to {results_csv} and {results_gama}")
+        
+    except Exception as e:
+        logger.error(f"Error merging CSV files: {str(e)}")
+        raise
 
 def is_empty_csv(path: str) -> bool:
     """Check if a CSV file is empty (contains only header)."""
