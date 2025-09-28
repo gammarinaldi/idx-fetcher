@@ -407,9 +407,10 @@ if __name__ == '__main__':
     logger.info("Starting IDX updater...")
     
     # Check if market is closed (weekend or holiday)
-    if is_market_closed():
-        logger.info("Market is closed (weekend or holiday) - Skipping market data fetch process.")
-        exit()
+    if os.getenv('ENABLE_HOLIDAY_CHECK', 'TRUE').upper() == 'TRUE':
+        if is_market_closed():
+            logger.info("Market is closed (weekend or holiday) - Skipping market data fetch process.")
+            exit()
     
     start_time = time.time()
 
