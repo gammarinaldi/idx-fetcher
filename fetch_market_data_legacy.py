@@ -437,7 +437,7 @@ if __name__ == '__main__':
         logger.info("Starting MongoDB upload...")
         upload_to_mongodb(
             csv_path=f"{os.getenv('DIR_PATH')}/results.csv",
-            collection_name="daily_market_data",
+            collection_name=os.getenv('MONGODB_COLLECTION'),
             batch_size=1000
         )
     else:
