@@ -76,9 +76,9 @@ def is_market_closed() -> bool:
         return False
 
 def run_fetch_script():
-    """Run the fetch_daily_market_data.py script."""
+    """Run the fetch_market_data_optimized.py script."""
     try:
-        logger.info("Starting scheduled execution of fetch_daily_market_data.py")
+        logger.info("Starting scheduled execution of fetch_market_data_optimized.py")
         
         # Check if market is closed (weekend or holiday)
         if is_market_closed():
@@ -87,7 +87,7 @@ def run_fetch_script():
         
         # Get the directory where this script is located
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        fetch_script_path = os.path.join(script_dir, "fetch_daily_market_data.py")
+        fetch_script_path = os.path.join(script_dir, "fetch_market_data_optimized.py")
         
         # Ensure we're in the correct working directory
         os.chdir(script_dir)
@@ -106,28 +106,28 @@ def run_fetch_script():
         )
         
         if result.returncode == 0:
-            logger.info("fetch_daily_market_data.py completed successfully")
+            logger.info("fetch_market_data_optimized.py completed successfully")
             if result.stdout:
                 logger.info(f"Script output: {result.stdout}")
         else:
-            logger.error(f"fetch_daily_market_data.py failed with return code {result.returncode}")
+            logger.error(f"fetch_market_data_optimized.py failed with return code {result.returncode}")
             if result.stderr:
                 logger.error(f"Script error: {result.stderr}")
             if result.stdout:
                 logger.info(f"Script output: {result.stdout}")
                 
     except Exception as e:
-        logger.error(f"Error running fetch_daily_market_data.py: {str(e)}")
+        logger.error(f"Error running fetch_market_data_optimized.py: {str(e)}")
 
 def get_next_run_time():
     """Get the next scheduled run time in UTC+7."""
     utc7_tz = pytz.timezone('Asia/Jakarta')  # UTC+7 timezone
     now = datetime.now(utc7_tz)
     
-    # Schedule for 19:00 UTC+7
-    next_run = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    # Schedule for 17:00 UTC+7
+    next_run = now.replace(hour=17, minute=0, second=0, microsecond=0)
     
-    # If it's already past 19:00 today, schedule for tomorrow
+    # If it's already past 17:00 today, schedule for tomorrow
     if now.time() >= next_run.time():
         next_run = next_run.replace(day=next_run.day + 1)
     
@@ -137,8 +137,8 @@ def main():
     """Main function to set up and run the scheduler."""
     logger.info("Starting IDX Fetcher Scheduler")
     
-    # Set up the schedule to run at 19:00 UTC+7 every day
-    schedule.every().day.at("19:00").do(run_fetch_script)
+    # Set up the schedule to run at 17:00 UTC+7 every day
+    schedule.every().day.at("17:00").do(run_fetch_script)
     
     # Log the next scheduled run
     next_run = get_next_run_time()
