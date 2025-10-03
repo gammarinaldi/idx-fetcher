@@ -37,7 +37,7 @@ def export_stock_list_to_mongodb(csv_path: str) -> None:
     logger.info(f"Starting stock list export to MongoDB")
     client = setup_mongodb()
     db = client['algosaham_db']
-    collection = db['ticker']
+    collection = db['tickers']
     
     try:
         # Read the CSV file
