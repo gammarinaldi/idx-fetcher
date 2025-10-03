@@ -511,7 +511,10 @@ if __name__ == '__main__':
     mongo_uploader = None
     if os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE':
         logger.info("MongoDB upload enabled - initializing uploader")
-        mongo_collection = os.getenv('MONGODB_COLLECTION')
+        mongo_collection = os.getenv('MONGODB_COLLECTION', 'daily_market_data')
+        if not mongo_collection:
+            logger.error("MONGODB_COLLECTION environment variable is not set")
+            raise ValueError("MONGODB_COLLECTION environment variable is required when UPLOAD_TO_MONGODB is enabled")
         mongo_uploader = OptimizedMongoDBUploader(mongo_collection, batch_size=1000)
         mongo_uploader.__enter__()
 

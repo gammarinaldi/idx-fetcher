@@ -15,6 +15,7 @@ services:
       - MAX_RETRIES=${MAX_RETRIES:-3}
       - INITIAL_DELAY=${INITIAL_DELAY:-1}
       - UPLOAD_TO_MONGODB=${UPLOAD_TO_MONGODB:-FALSE}
+      - MONGODB_COLLECTION=${MONGODB_COLLECTION:-daily_market_data}
       - DIR_PATH=${DIR_PATH:-/app}
       - STOCK_LIST_PATH=${STOCK_LIST_PATH:-stock_list.csv}
       # Market closed checking is enabled by default
