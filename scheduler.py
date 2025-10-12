@@ -124,17 +124,17 @@ def get_next_run_time():
     utc7_tz = pytz.timezone('Asia/Jakarta')  # UTC+7 timezone
     now = datetime.now(utc7_tz)
     
-    # Scheduled times: 13:00 and 17:00 UTC+7
-    scheduled_times = [13, 17]
+    # Scheduled times: 12:30 and 16:30 UTC+7
+    scheduled_times = [12, 16]
     
     # Find the next scheduled time today
     for hour in scheduled_times:
-        next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        next_run = now.replace(hour=hour, minute=30, second=0, microsecond=0)
         if now.time() < next_run.time():
             return next_run
     
-    # If all scheduled times have passed today, schedule for 13:00 tomorrow
-    next_run = now.replace(hour=13, minute=0, second=0, microsecond=0)
+    # If all scheduled times have passed today, schedule for 12:30 tomorrow
+    next_run = now.replace(hour=12, minute=30, second=0, microsecond=0)
     next_run = next_run.replace(day=next_run.day + 1)
     
     return next_run
@@ -143,14 +143,14 @@ def main():
     """Main function to set up and run the scheduler."""
     logger.info("Starting IDX Fetcher Scheduler")
     
-    # Set up the schedule to run at 13:00 and 17:00 UTC+7 every day
-    schedule.every().day.at("13:00").do(run_fetch_script)
-    schedule.every().day.at("17:00").do(run_fetch_script)
+    # Set up the schedule to run at 12:30 and 16:30 UTC+7 every day
+    schedule.every().day.at("12:30").do(run_fetch_script)
+    schedule.every().day.at("16:30").do(run_fetch_script)
     
     # Log the next scheduled run
     next_run = get_next_run_time()
     logger.info(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')} UTC+7")
-    logger.info("Scheduled to run daily at 13:00 and 17:00 UTC+7 (Asia/Jakarta timezone)")
+    logger.info("Scheduled to run daily at 12:30 and 16:30 UTC+7 (Asia/Jakarta timezone)")
     
     logger.info("Scheduler is running. Press Ctrl+C to stop.")
     
