@@ -15,7 +15,7 @@ import yfinance as yf
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-from pymongo import MongoClient
+from pymongo import MongoClient, ReplaceOne
 from curl_cffi import requests
 from datetime import datetime
 import queue
@@ -237,7 +237,7 @@ class OptimizedMongoDBUploader:
             self.client.close()
     
     def upload_batch(self, df: pd.DataFrame):
-        """Upload a batch of data to MongoDB."""
+        """Upload a batch of data to MongoDB using bulk operations for much faster performance."""
         if df.empty:
             return 0, 0
         
@@ -248,24 +248,32 @@ class OptimizedMongoDBUploader:
         
         records = df_copy.to_dict('records')
         
-        total_updated = 0
-        total_inserted = 0
-        
+        # Use bulk_write for much better performance
+        # Instead of individual operations, batch them all together
+        operations = []
         for record in records:
-            try:
-                result = self.collection.replace_one(
+            operations.append(
+                ReplaceOne(
                     {"date": record["date"], "ticker": record["ticker"]},
                     record,
                     upsert=True
                 )
-                
-                if result.upserted_id:
-                    total_inserted += 1
-                elif result.modified_count > 0:
-                    total_updated += 1
-                    
-            except Exception as e:
-                logger.warning(f"Error processing MongoDB record {record.get('ticker', 'unknown')}: {str(e)}")
+            )
+        
+        total_inserted = 0
+        total_updated = 0
+        
+        try:
+            # Execute all operations in a single bulk write (MUCH faster!)
+            if operations:
+                result = self.collection.bulk_write(operations, ordered=False)
+                total_inserted = result.upserted_count
+                total_updated = result.modified_count
+                logger.info(f"Bulk upload: {total_inserted} inserted, {total_updated} updated from {len(operations)} operations")
+        except Exception as e:
+            logger.error(f"Error during bulk write: {str(e)}")
+            # If bulk operation fails, you could optionally fall back to individual operations
+            # but this is rare and usually indicates a more serious issue
         
         return total_inserted, total_updated
 
