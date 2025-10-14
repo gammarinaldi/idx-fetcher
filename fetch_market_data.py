@@ -244,7 +244,11 @@ class OptimizedMongoDBUploader:
         # Prepare data for MongoDB
         df_copy = df.copy()
         df_copy.columns = df_copy.columns.str.lower()
-        df_copy['date'] = pd.to_datetime(df_copy['date'])
+        # Convert date to datetime and add current time with minutes
+        current_time = datetime.now()
+        df_copy['date'] = pd.to_datetime(df_copy['date']).dt.date.apply(
+            lambda x: datetime.combine(x, current_time.time().replace(second=0, microsecond=0))
+        )
         
         records = df_copy.to_dict('records')
         
@@ -280,6 +284,7 @@ class OptimizedMongoDBUploader:
 def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int, 
                               results_writer: ThreadSafeResultsWriter, 
                               mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> bool:
+    
     """
     Fetch stock data for a given symbol and write directly to results files.
     
