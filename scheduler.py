@@ -76,9 +76,9 @@ def is_market_closed() -> bool:
         return False
 
 def run_fetch_script():
-    """Run the fetch_market_data_optimized.py script."""
+    """Run the fetch_market_data.py script."""
     try:
-        logger.info("Starting scheduled execution of fetch_market_data_optimized.py")
+        logger.info("Starting scheduled execution of fetch_market_data.py")
         
         # Check if market is closed (weekend or holiday)
         if is_market_closed():
@@ -87,7 +87,7 @@ def run_fetch_script():
         
         # Get the directory where this script is located
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        fetch_script_path = os.path.join(script_dir, "fetch_market_data_optimized.py")
+        fetch_script_path = os.path.join(script_dir, "fetch_market_data.py")
         
         # Ensure we're in the correct working directory
         os.chdir(script_dir)
@@ -106,18 +106,18 @@ def run_fetch_script():
         )
         
         if result.returncode == 0:
-            logger.info("fetch_market_data_optimized.py completed successfully")
+            logger.info("fetch_market_data.py completed successfully")
             if result.stdout:
                 logger.info(f"Script output: {result.stdout}")
         else:
-            logger.error(f"fetch_market_data_optimized.py failed with return code {result.returncode}")
+            logger.error(f"fetch_market_data.py failed with return code {result.returncode}")
             if result.stderr:
                 logger.error(f"Script error: {result.stderr}")
             if result.stdout:
                 logger.info(f"Script output: {result.stdout}")
                 
     except Exception as e:
-        logger.error(f"Error running fetch_market_data_optimized.py: {str(e)}")
+        logger.error(f"Error running fetch_market_data.py: {str(e)}")
 
 def get_next_run_time():
     """Get the next scheduled run time in UTC+7."""
