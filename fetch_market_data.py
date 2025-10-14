@@ -95,9 +95,16 @@ def create_mongodb_indexes(collection_name: str) -> None:
     collection = db[collection_name]
     
     try:
-        # Create compound unique index on date and ticker to prevent duplicates
-        collection.create_index([("date", 1), ("ticker", 1)], unique=True, background=True)
-        logger.info("Successfully created unique compound index on (date, ticker)")
+        # Drop existing unique index if it exists to allow multiple entries per day
+        try:
+            collection.drop_index([("date", 1), ("ticker", 1)])
+            logger.info("Dropped existing unique index on (date, ticker)")
+        except Exception as drop_error:
+            logger.info(f"No existing unique index to drop: {str(drop_error)}")
+        
+        # Create compound index on date and ticker (non-unique to allow multiple entries per day)
+        collection.create_index([("date", 1), ("ticker", 1)], background=True)
+        logger.info("Successfully created compound index on (date, ticker)")
         
         # Create individual indexes for common queries
         collection.create_index([("date", 1)], background=True)
@@ -252,6 +259,9 @@ class OptimizedMongoDBUploader:
         
         records = df_copy.to_dict('records')
         
+        # Clean up old data for same ticker and date (without time)
+        self._cleanup_old_data_for_tickers(records)
+        
         # Use bulk_write for much better performance
         # Instead of individual operations, batch them all together
         operations = []
@@ -280,6 +290,46 @@ class OptimizedMongoDBUploader:
             # but this is rare and usually indicates a more serious issue
         
         return total_inserted, total_updated
+    
+    def _cleanup_old_data_for_tickers(self, records: List[dict]):
+        """Clean up old data for the same ticker and date (without time) to keep only fresh data."""
+        if not records:
+            return
+        
+        try:
+            # Group records by ticker and date (without time)
+            ticker_date_groups = {}
+            for record in records:
+                ticker = record["ticker"]
+                date_without_time = record["date"].date()  # Get date without time
+                key = (ticker, date_without_time)
+                
+                if key not in ticker_date_groups:
+                    ticker_date_groups[key] = []
+                ticker_date_groups[key].append(record)
+            
+            # Delete old records for each ticker-date combination
+            total_deleted = 0
+            for (ticker, date_without_time), group_records in ticker_date_groups.items():
+                # Delete all existing records for this ticker and date
+                delete_result = self.collection.delete_many({
+                    "ticker": ticker,
+                    "date": {
+                        "$gte": datetime.combine(date_without_time, datetime.min.time()),
+                        "$lt": datetime.combine(date_without_time + pd.Timedelta(days=1), datetime.min.time())
+                    }
+                })
+                
+                if delete_result.deleted_count > 0:
+                    total_deleted += delete_result.deleted_count
+                    logger.info(f"Cleaned up {delete_result.deleted_count} old records for {ticker} on {date_without_time}")
+            
+            if total_deleted > 0:
+                logger.info(f"Total old records cleaned up: {total_deleted}")
+                
+        except Exception as e:
+            logger.error(f"Error during cleanup of old data: {str(e)}")
+            # Continue with upload even if cleanup fails
 
 def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int, 
                               results_writer: ThreadSafeResultsWriter, 
