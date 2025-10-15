@@ -91,7 +91,12 @@ def create_mongodb_indexes(collection_name: str) -> None:
     """
     logger.info(f"Creating indexes for collection: {collection_name}")
     client = setup_mongodb()
-    db = client['algosaham_db']
+    # Get database name from environment variable or extract from URI
+    db_name = os.getenv('MONGODB_DATABASE')
+    if not db_name:
+        mongodb_uri = os.getenv('MONGODB_URI')
+        db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+    db = client[db_name]
     collection = db[collection_name]
     
     try:
@@ -231,7 +236,12 @@ class OptimizedMongoDBUploader:
     def __enter__(self):
         """Context manager entry."""
         self.client = setup_mongodb()
-        db = self.client['algosaham_db']
+        # Get database name from environment variable or extract from URI
+        db_name = os.getenv('MONGODB_DATABASE')
+        if not db_name:
+            mongodb_uri = os.getenv('MONGODB_URI')
+            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+        db = self.client[db_name]
         self.collection = db[self.collection_name]
         
         # Create indexes

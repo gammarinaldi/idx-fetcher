@@ -36,7 +36,12 @@ def export_stock_list_to_mongodb(csv_path: str) -> None:
     """
     logger.info(f"Starting stock list export to MongoDB")
     client = setup_mongodb()
-    db = client['algosaham_db']
+    # Get database name from environment variable or extract from URI
+    db_name = os.getenv('MONGODB_DATABASE')
+    if not db_name:
+        mongodb_uri = os.getenv('MONGODB_URI')
+        db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+    db = client[db_name]
     collection = db['tickers']
     
     try:
