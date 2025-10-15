@@ -31,7 +31,10 @@ services:
       # Mount the stock list CSV file
       - ./stock_list.csv:/app/stock_list.csv:ro
     user: "1000:1000"
-    networks_mode: host
+    networks:
+      - idx-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import schedule; print('Scheduler is healthy')"]
       interval: 30s
