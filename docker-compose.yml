@@ -34,7 +34,7 @@ services:
     networks:
       - idx-network
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "mongodb-host:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import schedule; print('Scheduler is healthy')"]
       interval: 30s
