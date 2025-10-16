@@ -538,7 +538,8 @@ def retry_failed_fetches_optimized(max_retries: int, initial_delay: int,
                                  results_writer: ThreadSafeResultsWriter,
                                  mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> None:
     """Retry fetching data for failed stocks with optimized approach."""
-    failed_csv_path = f"{os.getenv('DIR_PATH')}/failed.csv"
+    dir_path = os.getenv('DIR_PATH', '/app')
+    failed_csv_path = os.path.join(dir_path, "failed.csv")
     
     if os.path.exists(failed_csv_path) and os.path.getsize(failed_csv_path) > 0:
         with open(failed_csv_path, "r") as file:
@@ -584,7 +585,38 @@ def get_stock_list() -> List[str]:
     """
     Get list of stock codes from CSV file and format them.
     """
-    csv_path = os.getenv('DIR_PATH') + "/" + os.getenv('STOCK_LIST_PATH')
+    # Get directory path and stock list filename from environment variables
+    dir_path = os.getenv('DIR_PATH', '/app')  # Default to /app for Docker
+    stock_list_filename = os.getenv('STOCK_LIST_PATH', 'stock_list.csv')
+    
+    # Construct the CSV path
+    csv_path = os.path.join(dir_path, stock_list_filename)
+    
+    # If the file doesn't exist at the expected path, try alternative locations
+    if not os.path.exists(csv_path):
+        logger.warning(f"Stock list not found at {csv_path}, trying alternative locations...")
+        
+        # Try current directory
+        current_dir_path = os.path.join(os.getcwd(), stock_list_filename)
+        if os.path.exists(current_dir_path):
+            csv_path = current_dir_path
+            logger.info(f"Found stock list at current directory: {csv_path}")
+        else:
+            # Try script directory
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            script_dir_path = os.path.join(script_dir, stock_list_filename)
+            if os.path.exists(script_dir_path):
+                csv_path = script_dir_path
+                logger.info(f"Found stock list at script directory: {csv_path}")
+            else:
+                # Last resort: try just the filename in current directory
+                if os.path.exists(stock_list_filename):
+                    csv_path = stock_list_filename
+                    logger.info(f"Found stock list in current directory: {csv_path}")
+                else:
+                    raise FileNotFoundError(f"Stock list file not found. Tried: {csv_path}, {current_dir_path}, {script_dir_path}, {stock_list_filename}")
+    
+    logger.info(f"Loading stock list from: {csv_path}")
     df = pd.read_csv(csv_path)
     stock_codes = df['Kode'].tolist()
     
@@ -619,9 +651,10 @@ if __name__ == '__main__':
     logger.info("Initializing optimized workflow...")
     
     # Initialize result files
-    results_csv = f"{os.getenv('DIR_PATH')}/results.csv"
-    results_gama = f"{os.getenv('DIR_PATH')}/results.gama"
-    failed_csv = f"{os.getenv('DIR_PATH')}/failed.csv"
+    dir_path = os.getenv('DIR_PATH', '/app')
+    results_csv = os.path.join(dir_path, "results.csv")
+    results_gama = os.path.join(dir_path, "results.gama")
+    failed_csv = os.path.join(dir_path, "failed.csv")
     
     # Initialize failed.csv
     open(failed_csv, "w").close()
