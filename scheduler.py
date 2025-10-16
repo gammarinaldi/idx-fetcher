@@ -41,7 +41,9 @@ def is_market_closed() -> bool:
     Returns:
         bool: True if market is closed (holiday or weekend), False otherwise
     """
-    today = datetime.now()
+    # Get current time in Asia/Jakarta timezone (UTC+7)
+    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    today = datetime.now(jakarta_tz)
     
     # Check if it's weekend (Saturday = 5, Sunday = 6)
     if today.weekday() >= 5:  # Saturday or Sunday
@@ -144,13 +146,21 @@ def main():
     logger.info("Starting IDX Fetcher Scheduler")
     
     # Set up the schedule to run at 12:30 and 16:30 UTC+7 every day
-    schedule.every().day.at("12:30").do(run_fetch_script)
-    schedule.every().day.at("16:30").do(run_fetch_script)
+    # Convert Jakarta time to UTC for scheduling
+    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    
+    # Schedule for 12:30 Jakarta time (UTC+7)
+    schedule_time_1230 = "05:30"  # 12:30 Jakarta = 05:30 UTC
+    # Schedule for 16:30 Jakarta time (UTC+7) 
+    schedule_time_1630 = "09:30"  # 16:30 Jakarta = 09:30 UTC
+    
+    schedule.every().day.at(schedule_time_1230).do(run_fetch_script)
+    schedule.every().day.at(schedule_time_1630).do(run_fetch_script)
     
     # Log the next scheduled run
     next_run = get_next_run_time()
     logger.info(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')} UTC+7")
-    logger.info("Scheduled to run daily at 12:30 and 16:30 UTC+7 (Asia/Jakarta timezone)")
+    logger.info(f"Scheduled to run daily at 12:30 and 16:30 WIB (UTC+7) - Server times: {schedule_time_1230} and {schedule_time_1630} UTC")
     
     logger.info("Scheduler is running. Press Ctrl+C to stop.")
     

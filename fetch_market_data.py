@@ -41,7 +41,10 @@ def is_market_closed() -> bool:
     Returns:
         bool: True if market is closed (holiday or weekend), False otherwise
     """
-    today = datetime.now()
+    # Get current time in Asia/Jakarta timezone (UTC+7)
+    import pytz
+    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    today = datetime.now(jakarta_tz)
     
     # Check if it's weekend (Saturday = 5, Sunday = 6)
     if today.weekday() >= 5:  # Saturday or Sunday
@@ -261,8 +264,10 @@ class OptimizedMongoDBUploader:
         # Prepare data for MongoDB
         df_copy = df.copy()
         df_copy.columns = df_copy.columns.str.lower()
-        # Convert date to datetime and add current time with minutes
-        current_time = datetime.now()
+        # Convert date to datetime and add current time with minutes in Jakarta timezone
+        import pytz
+        jakarta_tz = pytz.timezone('Asia/Jakarta')
+        current_time = datetime.now(jakarta_tz)
         df_copy['date'] = pd.to_datetime(df_copy['date']).dt.date.apply(
             lambda x: datetime.combine(x, current_time.time().replace(second=0, microsecond=0))
         )
