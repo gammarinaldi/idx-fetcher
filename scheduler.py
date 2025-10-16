@@ -7,6 +7,7 @@ import sys
 from datetime import datetime
 import pytz
 import requests
+import platform
 
 # Configure logging
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
@@ -34,6 +35,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def get_system_timezone_info():
+    """
+    Detect system timezone and return timezone information.
+    
+    Returns:
+        tuple: (is_utc, timezone_name, utc_offset)
+    """
+    try:
+        # Get system timezone
+        if platform.system() == "Windows":
+            # On Windows, get timezone info from registry or environment
+            import winreg
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation") as key:
+                    timezone_name = winreg.QueryValueEx(key, "TimeZoneKeyName")[0]
+            except:
+                timezone_name = os.environ.get('TZ', 'UTC')
+        else:
+            # On Unix-like systems
+            timezone_name = os.environ.get('TZ', 'UTC')
+        
+        # Get current UTC offset
+        utc_now = datetime.now(pytz.UTC)
+        local_now = datetime.now()
+        utc_offset = (local_now - utc_now.replace(tzinfo=None)).total_seconds() / 3600
+        
+        # Check if system is in UTC+0
+        is_utc = abs(utc_offset) < 0.1  # Allow small floating point errors
+        
+        logger.info(f"System timezone: {timezone_name}, UTC offset: {utc_offset:.1f}, Is UTC: {is_utc}")
+        
+        return is_utc, timezone_name, utc_offset
+        
+    except Exception as e:
+        logger.warning(f"Could not detect system timezone: {e}, defaulting to UTC")
+        return True, 'UTC', 0.0
+
+def get_target_timezone():
+    """
+    Get the target timezone for Jakarta market operations.
+    Returns Jakarta timezone object.
+    """
+    return pytz.timezone('Asia/Jakarta')
+
 def is_market_closed() -> bool:
     """
     Check if today is a market holiday or weekend.
@@ -42,7 +87,7 @@ def is_market_closed() -> bool:
         bool: True if market is closed (holiday or weekend), False otherwise
     """
     # Get current time in Asia/Jakarta timezone (UTC+7)
-    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    jakarta_tz = get_target_timezone()
     today = datetime.now(jakarta_tz)
     
     # Check if it's weekend (Saturday = 5, Sunday = 6)
@@ -123,20 +168,20 @@ def run_fetch_script():
 
 def get_next_run_time():
     """Get the next scheduled run time in UTC+7."""
-    utc7_tz = pytz.timezone('Asia/Jakarta')  # UTC+7 timezone
-    now = datetime.now(utc7_tz)
+    jakarta_tz = get_target_timezone()
+    now = datetime.now(jakarta_tz)
     
-    # Scheduled times: 12:30 and 16:30 UTC+7
-    scheduled_times = [12, 16]
+    # Scheduled times: 12:01 and 17:01 UTC+7
+    scheduled_times = [12, 17]
     
     # Find the next scheduled time today
     for hour in scheduled_times:
-        next_run = now.replace(hour=hour, minute=30, second=0, microsecond=0)
+        next_run = now.replace(hour=hour, minute=1, second=0, microsecond=0)
         if now.time() < next_run.time():
             return next_run
     
-    # If all scheduled times have passed today, schedule for 12:30 tomorrow
-    next_run = now.replace(hour=12, minute=30, second=0, microsecond=0)
+    # If all scheduled times have passed today, schedule for 12:01 tomorrow
+    next_run = now.replace(hour=12, minute=1, second=0, microsecond=0)
     next_run = next_run.replace(day=next_run.day + 1)
     
     return next_run
@@ -145,22 +190,35 @@ def main():
     """Main function to set up and run the scheduler."""
     logger.info("Starting IDX Fetcher Scheduler")
     
-    # Set up the schedule to run at 12:30 and 16:30 UTC+7 every day
-    # Convert Jakarta time to UTC for scheduling
-    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    # Detect system timezone
+    is_utc, timezone_name, utc_offset = get_system_timezone_info()
     
-    # Schedule for 12:30 Jakarta time (UTC+7)
-    schedule_time_1230 = "05:30"  # 12:30 Jakarta = 05:30 UTC
-    # Schedule for 16:30 Jakarta time (UTC+7) 
-    schedule_time_1630 = "09:30"  # 16:30 Jakarta = 09:30 UTC
+    # Set up the schedule to run at 12:01 and 17:01 UTC+7 every day
+    jakarta_tz = get_target_timezone()
     
-    schedule.every().day.at(schedule_time_1230).do(run_fetch_script)
-    schedule.every().day.at(schedule_time_1630).do(run_fetch_script)
+    if is_utc:
+        # System is in UTC+0, use UTC times directly
+        schedule_time_1201 = "05:01"  # 12:01 Jakarta = 05:01 UTC
+        schedule_time_1701 = "10:01"  # 17:01 Jakarta = 10:01 UTC
+        logger.info("System detected as UTC+0 - Using UTC-based scheduling")
+    else:
+        # System is not UTC, convert Jakarta time to local time for scheduling
+        # This is a fallback for systems that aren't UTC+0
+        schedule_time_1201 = "12:01"  # Will be interpreted as local time
+        schedule_time_1701 = "17:01"  # Will be interpreted as local time
+        logger.info(f"System detected as {timezone_name} (UTC{utc_offset:+.1f}) - Using local time scheduling")
+    
+    schedule.every().day.at(schedule_time_1201).do(run_fetch_script)
+    schedule.every().day.at(schedule_time_1701).do(run_fetch_script)
     
     # Log the next scheduled run
     next_run = get_next_run_time()
     logger.info(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')} UTC+7")
-    logger.info(f"Scheduled to run daily at 12:30 and 16:30 WIB (UTC+7) - Server times: {schedule_time_1230} and {schedule_time_1630} UTC")
+    
+    if is_utc:
+        logger.info(f"Scheduled to run daily at 12:01 and 17:01 WIB (UTC+7) - Server times: {schedule_time_1201} and {schedule_time_1701} UTC")
+    else:
+        logger.info(f"Scheduled to run daily at {schedule_time_1201} and {schedule_time_1701} local time ({timezone_name})")
     
     logger.info("Scheduler is running. Press Ctrl+C to stop.")
     

@@ -19,6 +19,8 @@ from pymongo import MongoClient, ReplaceOne
 from curl_cffi import requests
 from datetime import datetime
 import queue
+import platform
+import pytz
 
 # Load environment variables
 load_dotenv(override=True)
@@ -34,6 +36,50 @@ def setup_logging():
 
 logger = setup_logging()
 
+def get_system_timezone_info():
+    """
+    Detect system timezone and return timezone information.
+    
+    Returns:
+        tuple: (is_utc, timezone_name, utc_offset)
+    """
+    try:
+        # Get system timezone
+        if platform.system() == "Windows":
+            # On Windows, get timezone info from registry or environment
+            import winreg
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation") as key:
+                    timezone_name = winreg.QueryValueEx(key, "TimeZoneKeyName")[0]
+            except:
+                timezone_name = os.environ.get('TZ', 'UTC')
+        else:
+            # On Unix-like systems
+            timezone_name = os.environ.get('TZ', 'UTC')
+        
+        # Get current UTC offset
+        utc_now = datetime.now(pytz.UTC)
+        local_now = datetime.now()
+        utc_offset = (local_now - utc_now.replace(tzinfo=None)).total_seconds() / 3600
+        
+        # Check if system is in UTC+0
+        is_utc = abs(utc_offset) < 0.1  # Allow small floating point errors
+        
+        logger.info(f"System timezone: {timezone_name}, UTC offset: {utc_offset:.1f}, Is UTC: {is_utc}")
+        
+        return is_utc, timezone_name, utc_offset
+        
+    except Exception as e:
+        logger.warning(f"Could not detect system timezone: {e}, defaulting to UTC")
+        return True, 'UTC', 0.0
+
+def get_target_timezone():
+    """
+    Get the target timezone for Jakarta market operations.
+    Returns Jakarta timezone object.
+    """
+    return pytz.timezone('Asia/Jakarta')
+
 def is_market_closed() -> bool:
     """
     Check if today is a market holiday or weekend.
@@ -42,8 +88,7 @@ def is_market_closed() -> bool:
         bool: True if market is closed (holiday or weekend), False otherwise
     """
     # Get current time in Asia/Jakarta timezone (UTC+7)
-    import pytz
-    jakarta_tz = pytz.timezone('Asia/Jakarta')
+    jakarta_tz = get_target_timezone()
     today = datetime.now(jakarta_tz)
     
     # Check if it's weekend (Saturday = 5, Sunday = 6)
@@ -265,8 +310,7 @@ class OptimizedMongoDBUploader:
         df_copy = df.copy()
         df_copy.columns = df_copy.columns.str.lower()
         # Convert date to datetime and add current time with minutes in Jakarta timezone
-        import pytz
-        jakarta_tz = pytz.timezone('Asia/Jakarta')
+        jakarta_tz = get_target_timezone()
         current_time = datetime.now(jakarta_tz)
         df_copy['date'] = pd.to_datetime(df_copy['date']).dt.date.apply(
             lambda x: datetime.combine(x, current_time.time().replace(second=0, microsecond=0))
