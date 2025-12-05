@@ -1,6 +1,7 @@
 __pycache__
 csv/
 .env
+.env.production
 .venv/
 *.csv
 !stock_list.csv
