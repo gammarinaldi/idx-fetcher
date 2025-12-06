@@ -31,10 +31,13 @@ services:
       # Mount the stock list CSV file
       - ./stock_list.csv:/app/stock_list.csv:ro
     user: "1000:1000"
-    networks:
-      - idx-network
-    extra_hosts:
-      - "mongodb-host:host-gateway"
+    # Use host network mode to bypass AppArmor sysctl restrictions
+    # This avoids the "permission denied" error when Docker tries to modify sysctls
+    network_mode: "host"
+    # Note: With host network mode:
+    # - Port mappings are not needed (container uses host network directly)
+    # - extra_hosts doesn't work (use 127.0.0.1 or localhost for local services)
+    # - MongoDB connection should use 127.0.0.1:27017 if running on host
     healthcheck:
       test: ["CMD", "python", "-c", "import schedule; print('Scheduler is healthy')"]
       interval: 30s
@@ -46,7 +49,8 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-networks:
-  idx-network:
-    driver: bridge 
+# Note: networks section removed - not compatible with network_mode: "host"
+# If you need custom networks, remove network_mode above and add back:
+# networks:
+#   idx-network:
+#     driver: bridge
