@@ -28,12 +28,24 @@ load_dotenv(override=True)
 
 def setup_logging():
     """Configure logging with timestamp, level, and message."""
+    log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+    log_level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    level = log_level_map.get(log_level, logging.INFO)
+    
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    return logging.getLogger(__name__)
+    logger_instance = logging.getLogger(__name__)
+    logger_instance.debug(f"Logging level set to: {log_level}")
+    return logger_instance
 
 logger = setup_logging()
 
@@ -49,14 +61,23 @@ def get_proxy_config():
     proxy_username = os.getenv('PROXY_USERNAME')
     proxy_password = os.getenv('PROXY_PASSWORD')
     
+    logger.debug(f"Proxy configuration check - HOST: {'SET' if proxy_host else 'NOT SET'}, "
+                f"PORT: {'SET' if proxy_port else 'NOT SET'}, "
+                f"USERNAME: {'SET' if proxy_username else 'NOT SET'}, "
+                f"PASSWORD: {'SET' if proxy_password else 'NOT SET'}")
+    
     if not proxy_host or not proxy_port:
+        logger.debug("Proxy not configured - missing PROXY_HOST or PROXY_PORT")
         return None
     
     # Build proxy URL
-    if proxy_username and proxy_password:
+    has_auth = bool(proxy_username and proxy_password)
+    if has_auth:
         proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
+        logger.debug(f"Proxy configured with authentication: {proxy_host}:{proxy_port}")
     else:
         proxy_url = f"http://{proxy_host}:{proxy_port}"
+        logger.debug(f"Proxy configured without authentication: {proxy_host}:{proxy_port}")
     
     return {
         'http': proxy_url,
@@ -497,14 +518,24 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 
                 # Create session with proxy if configured
                 if proxy_config:
-                    session = requests.Session(impersonate="chrome", proxies=proxy_config)
-                    # Log proxy info (mask password for security)
-                    proxy_display = proxy_config['http'].split('@')[-1] if '@' in proxy_config['http'] else proxy_config['http']
-                    logger.info(f"Using proxy: {proxy_display}")
+                    logger.debug(f"Creating session with proxy for {symbol}")
+                    try:
+                        session = requests.Session(impersonate="chrome", proxies=proxy_config)
+                        # Log proxy info (mask password for security)
+                        proxy_display = proxy_config['http'].split('@')[-1] if '@' in proxy_config['http'] else proxy_config['http']
+                        logger.info(f"Using proxy: {proxy_display} for {symbol}")
+                        logger.debug(f"Session created successfully with proxy configuration")
+                    except Exception as proxy_error:
+                        logger.error(f"Failed to create session with proxy: {str(proxy_error)}")
+                        logger.debug(f"Proxy error details: {traceback.format_exc()}")
+                        raise
                 else:
+                    logger.debug(f"No proxy configured - using direct connection for {symbol}")
                     session = requests.Session(impersonate="chrome")
                 
+                logger.debug(f"Attempting to fetch {symbol} data via {'proxy' if proxy_config else 'direct connection'}")
                 df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
+                logger.debug(f"Successfully fetched data for {symbol} via {'proxy' if proxy_config else 'direct connection'}")
                     
                 # Check if YFPricesMissingError was logged
                 if any("YFPricesMissingError" in msg or "no price data found" in msg 
@@ -544,9 +575,13 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 return True
                 
             except (ChunkedEncodingError, ProtocolError, RequestException) as net_error:
-                logger.warning(f"Network error while fetching {symbol}: {net_error}")
+                proxy_status = "with proxy" if proxy_config else "without proxy"
+                logger.warning(f"Network error while fetching {symbol} {proxy_status}: {net_error}")
+                logger.debug(f"Network error details for {symbol}: {type(net_error).__name__} - {str(net_error)}")
+                logger.debug(f"Full traceback: {traceback.format_exc()}")
             except ValueError as ve:
                 logger.warning(f"Value error while fetching {symbol}: {ve}")
+                logger.debug(f"Value error details: {str(ve)}")
             
             if attempt < max_retries - 1:
                 wait_time = delay * (2 ** attempt) + random.uniform(0, 1)
@@ -734,6 +769,16 @@ if __name__ == '__main__':
     INITIAL_DELAY = int(float(os.getenv('INITIAL_DELAY')))
     
     logger.info("Starting Optimized IDX updater...")
+    
+    # Log proxy configuration status
+    proxy_config = get_proxy_config()
+    if proxy_config:
+        proxy_display = proxy_config['http'].split('@')[-1] if '@' in proxy_config['http'] else proxy_config['http']
+        logger.info(f"Proxy configuration: ENABLED - {proxy_display}")
+        logger.debug(f"Full proxy configuration loaded successfully")
+    else:
+        logger.info("Proxy configuration: DISABLED - using direct connection")
+        logger.debug("No proxy configuration found in environment variables")
     
     # Check if market is closed (weekend or holiday)
     if os.getenv('ENABLE_HOLIDAY_CHECK', 'TRUE').upper() == 'TRUE':
