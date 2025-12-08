@@ -582,12 +582,27 @@ def retry_failed_fetches_optimized(max_retries: int, initial_delay: int,
                                  results_writer: Optional[ThreadSafeResultsWriter],
                                  mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> None:
     """Retry fetching data for failed stocks with optimized approach."""
-    dir_path = os.getenv('DIR_PATH', '/app')
+    # Use current working directory as default instead of /app to avoid permission issues
+    default_dir = os.getcwd()
+    dir_path = os.getenv('DIR_PATH', default_dir)
     
     # Ensure directory exists before creating files
     if not os.path.exists(dir_path):
-        os.makedirs(dir_path, exist_ok=True)
-        logger.info(f"Created directory: {dir_path}")
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            logger.info(f"Created directory: {dir_path}")
+        except PermissionError as e:
+            logger.error(f"Permission denied when trying to create directory: {dir_path}")
+            logger.error(f"Error: {str(e)}")
+            # Fall back to current working directory
+            logger.info(f"Falling back to current working directory: {default_dir}")
+            dir_path = default_dir
+            if not os.path.exists(dir_path):
+                try:
+                    os.makedirs(dir_path, exist_ok=True)
+                except Exception as fallback_error:
+                    logger.error(f"Failed to create fallback directory: {str(fallback_error)}")
+                    raise
     
     failed_csv_path = os.path.join(dir_path, "failed.csv")
     
@@ -710,12 +725,28 @@ if __name__ == '__main__':
     
     # Initialize result files and CSV writer if CSV export is enabled
     results_writer = None
-    dir_path = os.getenv('DIR_PATH', '/app')
+    # Use current working directory as default instead of /app to avoid permission issues
+    default_dir = os.getcwd()
+    dir_path = os.getenv('DIR_PATH', default_dir)
     
     # Ensure directory exists before creating files (needed for failed.csv tracking)
+    # Only create directory if it doesn't exist and we have permission
     if not os.path.exists(dir_path):
-        os.makedirs(dir_path, exist_ok=True)
-        logger.info(f"Created directory: {dir_path}")
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            logger.info(f"Created directory: {dir_path}")
+        except PermissionError as e:
+            logger.error(f"Permission denied when trying to create directory: {dir_path}")
+            logger.error(f"Error: {str(e)}")
+            # Fall back to current working directory
+            logger.info(f"Falling back to current working directory: {default_dir}")
+            dir_path = default_dir
+            if not os.path.exists(dir_path):
+                try:
+                    os.makedirs(dir_path, exist_ok=True)
+                except Exception as fallback_error:
+                    logger.error(f"Failed to create fallback directory: {str(fallback_error)}")
+                    raise
     
     failed_csv = os.path.join(dir_path, "failed.csv")
     
