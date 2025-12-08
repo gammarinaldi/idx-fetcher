@@ -1,6 +1,7 @@
 import concurrent.futures
 import math
 import os
+import sys
 import traceback
 import csv
 import time
@@ -280,21 +281,35 @@ class OptimizedMongoDBUploader:
         self.batch_size = batch_size
         self.client = None
         self.collection = None
+        self.total_inserted = 0
+        self.total_updated = 0
+        self.total_operations = 0
         
     def __enter__(self):
         """Context manager entry."""
-        self.client = setup_mongodb()
-        # Get database name from environment variable or extract from URI
-        db_name = os.getenv('MONGODB_DATABASE')
-        if not db_name:
-            mongodb_uri = os.getenv('MONGODB_URI')
-            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
-        db = self.client[db_name]
-        self.collection = db[self.collection_name]
-        
-        # Create indexes
-        create_mongodb_indexes(self.collection_name)
-        return self
+        try:
+            self.client = setup_mongodb()
+            # Test connection
+            self.client.admin.command('ping')
+            logger.info("MongoDB connection test successful")
+            
+            # Get database name from environment variable or extract from URI
+            db_name = os.getenv('MONGODB_DATABASE')
+            if not db_name:
+                mongodb_uri = os.getenv('MONGODB_URI')
+                db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+            db = self.client[db_name]
+            self.collection = db[self.collection_name]
+            
+            logger.info(f"Connected to database: {db_name}, collection: {self.collection_name}")
+            
+            # Create indexes
+            create_mongodb_indexes(self.collection_name)
+            return self
+        except Exception as e:
+            logger.error(f"Failed to initialize MongoDB connection: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
@@ -342,11 +357,15 @@ class OptimizedMongoDBUploader:
                 result = self.collection.bulk_write(operations, ordered=False)
                 total_inserted = result.upserted_count
                 total_updated = result.modified_count
+                self.total_inserted += total_inserted
+                self.total_updated += total_updated
+                self.total_operations += len(operations)
                 logger.info(f"Bulk upload: {total_inserted} inserted, {total_updated} updated from {len(operations)} operations")
         except Exception as e:
             logger.error(f"Error during bulk write: {str(e)}")
-            # If bulk operation fails, you could optionally fall back to individual operations
-            # but this is rare and usually indicates a more serious issue
+            logger.error(traceback.format_exc())
+            # Re-raise to ensure the error is caught and logged at a higher level
+            raise
         
         return total_inserted, total_updated
     
@@ -456,10 +475,18 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 
                 # Optionally upload to MongoDB directly
                 if mongo_uploader:
-                    processed_df = results_writer._process_dataframe(symbol, df)
-                    if not processed_df.empty:
-                        inserted, updated = mongo_uploader.upload_batch(processed_df)
-                        logger.info(f"MongoDB upload for {symbol}: {inserted} inserted, {updated} updated")
+                    try:
+                        processed_df = results_writer._process_dataframe(symbol, df)
+                        if not processed_df.empty:
+                            inserted, updated = mongo_uploader.upload_batch(processed_df)
+                            logger.info(f"MongoDB upload for {symbol}: {inserted} inserted, {updated} updated")
+                        else:
+                            logger.warning(f"Processed dataframe for {symbol} is empty - skipping MongoDB upload")
+                    except Exception as mongo_error:
+                        logger.error(f"Failed to upload {symbol} to MongoDB: {str(mongo_error)}")
+                        logger.error(traceback.format_exc())
+                        # Don't re-raise - continue processing other symbols, but track the failure
+                        # The final check will verify if any data was uploaded
                 
                 return True
                 
@@ -664,15 +691,27 @@ if __name__ == '__main__':
     
     # Initialize MongoDB uploader if enabled
     mongo_uploader = None
-    if os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE':
+    upload_to_mongodb = os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE'
+    logger.info(f"MongoDB upload status: {'ENABLED' if upload_to_mongodb else 'DISABLED'}")
+    
+    if upload_to_mongodb:
         logger.info("MongoDB upload enabled - initializing uploader")
         mongo_collection = os.getenv('MONGODB_COLLECTION', 'daily_market_data')
         if not mongo_collection:
             logger.error("MONGODB_COLLECTION environment variable is not set")
             raise ValueError("MONGODB_COLLECTION environment variable is required when UPLOAD_TO_MONGODB is enabled")
-        mongo_uploader = OptimizedMongoDBUploader(mongo_collection, batch_size=1000)
-        mongo_uploader.__enter__()
+        try:
+            mongo_uploader = OptimizedMongoDBUploader(mongo_collection, batch_size=1000)
+            mongo_uploader.__enter__()
+            logger.info(f"MongoDB uploader initialized successfully for collection: {mongo_collection}")
+        except Exception as e:
+            logger.error(f"Failed to initialize MongoDB uploader: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+    else:
+        logger.warning("MongoDB upload is DISABLED - data will only be written to CSV files")
 
+    mongo_upload_success = True
     try:
         logger.info("Starting optimized async fetch for all stocks...")
         failed_stocks = fetch_async_optimized(stock_list, max_retries=MAX_RETRIES, 
@@ -692,11 +731,36 @@ if __name__ == '__main__':
                                      results_writer=results_writer,
                                      mongo_uploader=mongo_uploader)
 
+    except Exception as e:
+        logger.error(f"Critical error during data fetch/upload: {str(e)}")
+        logger.error(traceback.format_exc())
+        mongo_upload_success = False
+        raise
     finally:
         # Cleanup MongoDB connection
         if mongo_uploader:
-            mongo_uploader.__exit__(None, None, None)
+            try:
+                mongo_uploader.__exit__(None, None, None)
+                # Log MongoDB upload summary
+                logger.info("=" * 60)
+                logger.info("MongoDB Upload Summary:")
+                logger.info(f"  Total operations: {mongo_uploader.total_operations}")
+                logger.info(f"  Total inserted: {mongo_uploader.total_inserted}")
+                logger.info(f"  Total updated: {mongo_uploader.total_updated}")
+                logger.info(f"  Collection: {mongo_uploader.collection_name}")
+                if mongo_uploader.total_operations == 0:
+                    logger.warning("  WARNING: No data was uploaded to MongoDB!")
+                    mongo_upload_success = False
+                logger.info("=" * 60)
+            except Exception as e:
+                logger.error(f"Error during MongoDB cleanup: {str(e)}")
+                mongo_upload_success = False
 
     elapsed_time = time.time() - start_time
     logger.info(f"Optimized process completed in {elapsed_time:.2f} seconds")
     logger.info(f"Results saved to {results_csv} and {results_gama}")
+    
+    # Exit with error code if MongoDB upload was enabled but failed
+    if upload_to_mongodb and not mongo_upload_success:
+        logger.error("MongoDB upload was enabled but failed - exiting with error code")
+        sys.exit(1)

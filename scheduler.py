@@ -153,16 +153,23 @@ def run_fetch_script():
             cwd=script_dir
         )
         
+        # Always log stdout and stderr for debugging
+        if result.stdout:
+            # Log each line of stdout for better visibility
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    logger.info(f"Script output: {line}")
+        
+        if result.stderr:
+            # Log each line of stderr
+            for line in result.stderr.strip().split('\n'):
+                if line.strip():
+                    logger.warning(f"Script stderr: {line}")
+        
         if result.returncode == 0:
-            logger.info("fetch_market_data.py completed successfully")
-            if result.stdout:
-                logger.info(f"Script output: {result.stdout}")
+            logger.info("fetch_market_data.py completed successfully (exit code 0)")
         else:
             logger.error(f"fetch_market_data.py failed with return code {result.returncode}")
-            if result.stderr:
-                logger.error(f"Script error: {result.stderr}")
-            if result.stdout:
-                logger.info(f"Script output: {result.stdout}")
                 
     except Exception as e:
         logger.error(f"Error running fetch_market_data.py: {str(e)}")
