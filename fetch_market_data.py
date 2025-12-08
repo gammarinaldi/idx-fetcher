@@ -170,6 +170,47 @@ def create_mongodb_indexes(collection_name: str) -> None:
     finally:
         client.close()
 
+def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Process and format a dataframe for output (CSV or MongoDB).
+    
+    Args:
+        ticker: Stock ticker symbol
+        df: DataFrame with stock data
+    
+    Returns:
+        Processed DataFrame ready for output
+    """
+    # Flatten multi-index columns if they exist
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(1)
+    
+    # Check required columns
+    required_columns = ["Open", "High", "Low", "Close"]
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+    
+    # Clean ticker name
+    clean_ticker = ticker.replace(".JK", "")
+    df['Ticker'] = clean_ticker
+    
+    # Round down prices using math.floor
+    df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(
+        lambda x: x.apply(math.floor)
+    )
+    
+    # Reset index to make Date a column
+    df = df.reset_index()
+    if 'Date' not in df.columns and 'Datetime' in df.columns:
+        df = df.rename(columns={'Datetime': 'Date'})
+    
+    # Select and order columns
+    output_columns = ["Ticker", "Date", "Open", "High", "Low", "Close", "Volume"]
+    available_columns = [col for col in output_columns if col in df.columns]
+    
+    return df[available_columns]
+
 class ThreadSafeResultsWriter:
     """Thread-safe writer for results files with batching."""
     
@@ -207,35 +248,7 @@ class ThreadSafeResultsWriter:
     
     def _process_dataframe(self, ticker: str, df: pd.DataFrame) -> pd.DataFrame:
         """Process and format the dataframe for output."""
-        # Flatten multi-index columns if they exist
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(1)
-        
-        # Check required columns
-        required_columns = ["Open", "High", "Low", "Close"]
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            raise ValueError(f"Missing required columns: {missing_columns}")
-        
-        # Clean ticker name
-        clean_ticker = ticker.replace(".JK", "")
-        df['Ticker'] = clean_ticker
-        
-        # Round down prices using math.floor
-        df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(
-            lambda x: x.apply(math.floor)
-        )
-        
-        # Reset index to make Date a column
-        df = df.reset_index()
-        if 'Date' not in df.columns and 'Datetime' in df.columns:
-            df = df.rename(columns={'Datetime': 'Date'})
-        
-        # Select and order columns
-        output_columns = ["Ticker", "Date", "Open", "High", "Low", "Close", "Volume"]
-        available_columns = [col for col in output_columns if col in df.columns]
-        
-        return df[available_columns]
+        return process_dataframe_for_output(ticker, df)
     
     def _write_batch_if_needed(self):
         """Write batch to files if queue size reaches batch_size."""
@@ -410,7 +423,7 @@ class OptimizedMongoDBUploader:
             # Continue with upload even if cleanup fails
 
 def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int, 
-                              results_writer: ThreadSafeResultsWriter, 
+                              results_writer: Optional[ThreadSafeResultsWriter], 
                               mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> bool:
     
     """
@@ -420,7 +433,7 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
         symbol: Stock symbol to fetch
         max_retries: Maximum number of retry attempts
         initial_delay: Initial delay between retries
-        results_writer: Thread-safe writer for results files
+        results_writer: Optional thread-safe writer for results files
         mongo_uploader: Optional MongoDB uploader for direct database insertion
     
     Returns:
@@ -470,13 +483,16 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 
                 logger.info(f"Successfully fetched data for {symbol} - Shape: {df.shape}")
                 
-                # Write directly to results files
-                results_writer.add_data(symbol, df)
+                # Process dataframe for output
+                processed_df = process_dataframe_for_output(symbol, df)
+                
+                # Write directly to results files if CSV export is enabled
+                if results_writer:
+                    results_writer.add_data(symbol, df)
                 
                 # Optionally upload to MongoDB directly
                 if mongo_uploader:
                     try:
-                        processed_df = results_writer._process_dataframe(symbol, df)
                         if not processed_df.empty:
                             inserted, updated = mongo_uploader.upload_batch(processed_df)
                             logger.info(f"MongoDB upload for {symbol}: {inserted} inserted, {updated} updated")
@@ -517,7 +533,7 @@ def write_to_csv(data: Any, file_name: str) -> None:
         csv.writer(f).writerow([data])
 
 def fetch_async_optimized(stock_list: List[str], max_retries: int, initial_delay: int,
-                         results_writer: ThreadSafeResultsWriter,
+                         results_writer: Optional[ThreadSafeResultsWriter],
                          mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> List[str]:
     """
     Fetch stock data asynchronously for a list of symbols using optimized approach.
@@ -526,7 +542,7 @@ def fetch_async_optimized(stock_list: List[str], max_retries: int, initial_delay
         stock_list: List of stock symbols to fetch
         max_retries: Maximum number of retry attempts
         initial_delay: Initial delay between retries
-        results_writer: Thread-safe writer for results files
+        results_writer: Optional thread-safe writer for results files
         mongo_uploader: Optional MongoDB uploader for direct database insertion
     
     Returns:
@@ -556,16 +572,23 @@ def fetch_async_optimized(stock_list: List[str], max_retries: int, initial_delay
                 logger.error(traceback.format_exc())
                 failed_stocks.append(symbol)
     
-    # Flush any remaining data
-    results_writer.flush()
+    # Flush any remaining data if CSV export is enabled
+    if results_writer:
+        results_writer.flush()
                 
     return failed_stocks
 
 def retry_failed_fetches_optimized(max_retries: int, initial_delay: int,
-                                 results_writer: ThreadSafeResultsWriter,
+                                 results_writer: Optional[ThreadSafeResultsWriter],
                                  mongo_uploader: Optional[OptimizedMongoDBUploader] = None) -> None:
     """Retry fetching data for failed stocks with optimized approach."""
     dir_path = os.getenv('DIR_PATH', '/app')
+    
+    # Ensure directory exists before creating files
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+        logger.info(f"Created directory: {dir_path}")
+    
     failed_csv_path = os.path.join(dir_path, "failed.csv")
     
     if os.path.exists(failed_csv_path) and os.path.getsize(failed_csv_path) > 0:
@@ -610,52 +633,48 @@ def is_empty_csv(path: str) -> bool:
     
 def get_stock_list() -> List[str]:
     """
-    Get list of stock codes from CSV file and format them.
+    Get list of stock codes from MongoDB 'tickers' collection and format them.
     """
-    # Get directory path and stock list filename from environment variables
-    dir_path = os.getenv('DIR_PATH', '/app')  # Default to /app for Docker
-    stock_list_filename = os.getenv('STOCK_LIST_PATH', 'stock_list.csv')
+    logger.info("Loading stock list from MongoDB 'tickers' collection...")
     
-    # Construct the CSV path
-    csv_path = os.path.join(dir_path, stock_list_filename)
-    
-    # If the file doesn't exist at the expected path, try alternative locations
-    if not os.path.exists(csv_path):
-        logger.warning(f"Stock list not found at {csv_path}, trying alternative locations...")
+    try:
+        client = setup_mongodb()
         
-        # Try current directory
-        current_dir_path = os.path.join(os.getcwd(), stock_list_filename)
-        if os.path.exists(current_dir_path):
-            csv_path = current_dir_path
-            logger.info(f"Found stock list at current directory: {csv_path}")
-        else:
-            # Try script directory
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            script_dir_path = os.path.join(script_dir, stock_list_filename)
-            if os.path.exists(script_dir_path):
-                csv_path = script_dir_path
-                logger.info(f"Found stock list at script directory: {csv_path}")
+        # Get database name from environment variable or extract from URI
+        db_name = os.getenv('MONGODB_DATABASE')
+        if not db_name:
+            mongodb_uri = os.getenv('MONGODB_URI')
+            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+        
+        db = client[db_name]
+        collection = db['tickers']
+        
+        # Query active tickers from the collection
+        # Filter by is_active: true to only get active stocks
+        query = {"is_active": True}
+        tickers = collection.find(query, {"ticker": 1, "_id": 0})
+        
+        # Extract ticker codes
+        stock_codes = [doc["ticker"] for doc in tickers]
+        
+        client.close()
+        
+        logger.info(f"Loaded {len(stock_codes)} active tickers from MongoDB")
+        
+        # Format stock codes with special handling for JKSE
+        formatted_codes = []
+        for code in stock_codes:
+            if code == "JKSE":
+                formatted_codes.append("^JKSE")
             else:
-                # Last resort: try just the filename in current directory
-                if os.path.exists(stock_list_filename):
-                    csv_path = stock_list_filename
-                    logger.info(f"Found stock list in current directory: {csv_path}")
-                else:
-                    raise FileNotFoundError(f"Stock list file not found. Tried: {csv_path}, {current_dir_path}, {script_dir_path}, {stock_list_filename}")
-    
-    logger.info(f"Loading stock list from: {csv_path}")
-    df = pd.read_csv(csv_path)
-    stock_codes = df['Kode'].tolist()
-    
-    # Format stock codes with special handling for JKSE
-    formatted_codes = []
-    for code in stock_codes:
-        if code == "JKSE":
-            formatted_codes.append("^JKSE")
-        else:
-            formatted_codes.append(f"{code}.JK")
-    
-    return formatted_codes
+                formatted_codes.append(f"{code}.JK")
+        
+        return formatted_codes
+        
+    except Exception as e:
+        logger.error(f"Failed to load stock list from MongoDB: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
 
 if __name__ == '__main__':
     # Configuration
@@ -677,23 +696,42 @@ if __name__ == '__main__':
 
     logger.info("Initializing optimized workflow...")
     
-    # Initialize result files
+    # Check export configuration
+    export_to_csv = os.getenv('EXPORT_TO_CSV', 'FALSE').upper() == 'TRUE'
+    upload_to_mongodb = os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE'
+    
+    logger.info(f"CSV export status: {'ENABLED' if export_to_csv else 'DISABLED'}")
+    logger.info(f"MongoDB upload status: {'ENABLED' if upload_to_mongodb else 'DISABLED'}")
+    
+    # Validate that at least one export method is enabled
+    if not export_to_csv and not upload_to_mongodb:
+        logger.error("Both CSV export and MongoDB upload are disabled. Please enable at least one.")
+        raise ValueError("At least one of EXPORT_TO_CSV or UPLOAD_TO_MONGODB must be enabled")
+    
+    # Initialize result files and CSV writer if CSV export is enabled
+    results_writer = None
     dir_path = os.getenv('DIR_PATH', '/app')
-    results_csv = os.path.join(dir_path, "results.csv")
-    results_gama = os.path.join(dir_path, "results.gama")
+    
+    # Ensure directory exists before creating files (needed for failed.csv tracking)
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+        logger.info(f"Created directory: {dir_path}")
+    
     failed_csv = os.path.join(dir_path, "failed.csv")
     
-    # Initialize failed.csv
+    # Initialize failed.csv (always needed for retry tracking)
     open(failed_csv, "w").close()
     
-    # Initialize thread-safe results writer
-    results_writer = ThreadSafeResultsWriter(results_csv, results_gama, batch_size=50)
+    if export_to_csv:
+        results_csv = os.path.join(dir_path, "results.csv")
+        results_gama = os.path.join(dir_path, "results.gama")
+        
+        # Initialize thread-safe results writer
+        results_writer = ThreadSafeResultsWriter(results_csv, results_gama, batch_size=50)
+        logger.info("CSV export enabled - initialized results writer")
     
     # Initialize MongoDB uploader if enabled
     mongo_uploader = None
-    upload_to_mongodb = os.getenv('UPLOAD_TO_MONGODB', 'FALSE').upper() == 'TRUE'
-    logger.info(f"MongoDB upload status: {'ENABLED' if upload_to_mongodb else 'DISABLED'}")
-    
     if upload_to_mongodb:
         logger.info("MongoDB upload enabled - initializing uploader")
         mongo_collection = os.getenv('MONGODB_COLLECTION', 'daily_market_data')
@@ -708,8 +746,6 @@ if __name__ == '__main__':
             logger.error(f"Failed to initialize MongoDB uploader: {str(e)}")
             logger.error(traceback.format_exc())
             raise
-    else:
-        logger.warning("MongoDB upload is DISABLED - data will only be written to CSV files")
 
     mongo_upload_success = True
     try:
@@ -719,7 +755,7 @@ if __name__ == '__main__':
                                             results_writer=results_writer,
                                             mongo_uploader=mongo_uploader)
         
-        # Write failed stocks to CSV
+        # Write failed stocks to CSV (always needed for retry tracking)
         if failed_stocks:
             with open(failed_csv, 'w', newline='', encoding='utf-8') as f:
                 csv.writer(f).writerows([[stock] for stock in failed_stocks])
@@ -758,7 +794,8 @@ if __name__ == '__main__':
 
     elapsed_time = time.time() - start_time
     logger.info(f"Optimized process completed in {elapsed_time:.2f} seconds")
-    logger.info(f"Results saved to {results_csv} and {results_gama}")
+    if export_to_csv:
+        logger.info(f"Results saved to {os.path.join(dir_path, 'results.csv')} and {os.path.join(dir_path, 'results.gama')}")
     
     # Exit with error code if MongoDB upload was enabled but failed
     if upload_to_mongodb and not mongo_upload_success:
