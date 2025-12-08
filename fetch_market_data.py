@@ -37,6 +37,32 @@ def setup_logging():
 
 logger = setup_logging()
 
+def get_proxy_config():
+    """
+    Get proxy configuration from environment variables.
+    
+    Returns:
+        dict: Proxy configuration dict with 'http' and 'https' keys, or None if not configured
+    """
+    proxy_host = os.getenv('PROXY_HOST')
+    proxy_port = os.getenv('PROXY_PORT')
+    proxy_username = os.getenv('PROXY_USERNAME')
+    proxy_password = os.getenv('PROXY_PASSWORD')
+    
+    if not proxy_host or not proxy_port:
+        return None
+    
+    # Build proxy URL
+    if proxy_username and proxy_password:
+        proxy_url = f"http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
+    else:
+        proxy_url = f"http://{proxy_host}:{proxy_port}"
+    
+    return {
+        'http': proxy_url,
+        'https': proxy_url
+    }
+
 def get_system_timezone_info():
     """
     Detect system timezone and return timezone information.
@@ -466,7 +492,18 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 INTERVAL = os.getenv('INTERVAL')
                 GROUP_BY = os.getenv('GROUP_BY')
 
-                session = requests.Session(impersonate="chrome")
+                # Get proxy configuration
+                proxy_config = get_proxy_config()
+                
+                # Create session with proxy if configured
+                if proxy_config:
+                    session = requests.Session(impersonate="chrome", proxies=proxy_config)
+                    # Log proxy info (mask password for security)
+                    proxy_display = proxy_config['http'].split('@')[-1] if '@' in proxy_config['http'] else proxy_config['http']
+                    logger.info(f"Using proxy: {proxy_display}")
+                else:
+                    session = requests.Session(impersonate="chrome")
+                
                 df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
                     
                 # Check if YFPricesMissingError was logged
