@@ -789,6 +789,19 @@ if __name__ == '__main__':
     start_time = time.time()
 
     stock_list = get_stock_list()
+    
+    # Allow limiting stocks for testing via environment variable
+    test_limit = os.getenv('TEST_LIMIT')
+    if test_limit:
+        try:
+            limit = int(test_limit)
+            if limit > 0:
+                original_count = len(stock_list)
+                stock_list = stock_list[:limit]
+                logger.info(f"TEST MODE: Limited stock list from {original_count} to {len(stock_list)} stocks")
+        except ValueError:
+            logger.warning(f"Invalid TEST_LIMIT value '{test_limit}', ignoring limit")
+    
     logger.info(f"Loaded {len(stock_list)} stocks to process")
 
     logger.info("Initializing optimized workflow...")
