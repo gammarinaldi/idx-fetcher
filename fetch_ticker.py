@@ -57,10 +57,13 @@ def export_stock_list_to_mongodb(csv_path: str) -> None:
         
         # Filter records to insert
         records_to_insert = []
+        now = pd.Timestamp.now()
+        
         for record in df.to_dict('records'):
             if record['kode'] not in existing_kodes:
-                # Add created_at and is_active fields
-                record['created_at'] = pd.Timestamp.now()
+                # Add createdAt, updatedAt and is_active fields
+                record['createdAt'] = now
+                record['updatedAt'] = now
                 record['is_active'] = True
                 records_to_insert.append(record)
         

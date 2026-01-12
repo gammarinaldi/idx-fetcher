@@ -56,6 +56,12 @@ def get_proxy_config():
     Returns:
         dict: Proxy configuration dict with 'http' and 'https' keys, or None if not configured
     """
+    # Check if proxy is explicitly disabled
+    use_proxy = os.getenv('USE_PROXY', 'TRUE').upper() == 'TRUE'
+    if not use_proxy:
+        logger.debug("Proxy is disabled via USE_PROXY environment variable")
+        return None
+
     proxy_host = os.getenv('PROXY_HOST')
     proxy_port = os.getenv('PROXY_PORT')
     proxy_username = os.getenv('PROXY_USERNAME')
@@ -149,8 +155,12 @@ def is_market_closed() -> bool:
         month = today.month
         year = today.year
         
+        # Get proxy configuration
+        proxy_config = get_proxy_config()
+        
         # Call holiday API
-        response = requests.get(f"https://dayoffapi.vercel.app/api?month={month}&year={year}")
+        response = requests.get(f"https://dayoffapi.vercel.app/api?month={month}&year={year}", 
+                              impersonate="chrome", proxies=proxy_config)
         if response.status_code == 200:
             holidays = response.json()
             today_str = today.strftime("%Y-%m-%d")
@@ -391,10 +401,11 @@ class OptimizedMongoDBUploader:
             lambda x: datetime.combine(x, current_time.time().replace(second=0, microsecond=0))
         )
         
-        records = df_copy.to_dict('records')
+        # Add createdAt and updatedAt timestamps
+        df_copy['createdAt'] = current_time
+        df_copy['updatedAt'] = current_time
         
-        # Clean up old data for same ticker and date (without time)
-        self._cleanup_old_data_for_tickers(records)
+        records = df_copy.to_dict('records')
         
         # Use bulk_write for much better performance
         # Instead of individual operations, batch them all together
@@ -428,46 +439,6 @@ class OptimizedMongoDBUploader:
             raise
         
         return total_inserted, total_updated
-    
-    def _cleanup_old_data_for_tickers(self, records: List[dict]):
-        """Clean up old data for the same ticker and date (without time) to keep only fresh data."""
-        if not records:
-            return
-        
-        try:
-            # Group records by ticker and date (without time)
-            ticker_date_groups = {}
-            for record in records:
-                ticker = record["ticker"]
-                date_without_time = record["date"].date()  # Get date without time
-                key = (ticker, date_without_time)
-                
-                if key not in ticker_date_groups:
-                    ticker_date_groups[key] = []
-                ticker_date_groups[key].append(record)
-            
-            # Delete old records for each ticker-date combination
-            total_deleted = 0
-            for (ticker, date_without_time), group_records in ticker_date_groups.items():
-                # Delete all existing records for this ticker and date
-                delete_result = self.collection.delete_many({
-                    "ticker": ticker,
-                    "date": {
-                        "$gte": datetime.combine(date_without_time, datetime.min.time()),
-                        "$lt": datetime.combine(date_without_time + pd.Timedelta(days=1), datetime.min.time())
-                    }
-                })
-                
-                if delete_result.deleted_count > 0:
-                    total_deleted += delete_result.deleted_count
-                    logger.info(f"Cleaned up {delete_result.deleted_count} old records for {ticker} on {date_without_time}")
-            
-            if total_deleted > 0:
-                logger.info(f"Total old records cleaned up: {total_deleted}")
-                
-        except Exception as e:
-            logger.error(f"Error during cleanup of old data: {str(e)}")
-            # Continue with upload even if cleanup fails
 
 def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int, 
                               results_writer: Optional[ThreadSafeResultsWriter], 
@@ -772,13 +743,16 @@ if __name__ == '__main__':
     
     # Log proxy configuration status
     proxy_config = get_proxy_config()
+    use_proxy_env = os.getenv('USE_PROXY', 'TRUE').upper()
+    
     if proxy_config:
         proxy_display = proxy_config['http'].split('@')[-1] if '@' in proxy_config['http'] else proxy_config['http']
         logger.info(f"Proxy configuration: ENABLED - {proxy_display}")
         logger.debug(f"Full proxy configuration loaded successfully")
+    elif use_proxy_env == 'FALSE':
+        logger.info("Proxy configuration: DISABLED via USE_PROXY - using direct connection")
     else:
-        logger.info("Proxy configuration: DISABLED - using direct connection")
-        logger.debug("No proxy configuration found in environment variables")
+        logger.info("Proxy configuration: NOT CONFIGURED - using direct connection")
     
     # Check if market is closed (weekend or holiday)
     if os.getenv('ENABLE_HOLIDAY_CHECK', 'TRUE').upper() == 'TRUE':
