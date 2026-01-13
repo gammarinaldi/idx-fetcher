@@ -1,6 +1,7 @@
 import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from mongodb_tunnel import start_ssh_tunnel
 import logging
 
 # Load environment variables
@@ -17,6 +18,9 @@ def setup_logging():
 logger = setup_logging()
 
 def test_mongodb_connection():
+    # Start SSH tunnel if configured
+    start_ssh_tunnel()
+    
     mongodb_uri = os.getenv('MONGODB_URI')
     logger.info(f"Attempting to connect to MongoDB at: {mongodb_uri}")
     

@@ -3,6 +3,7 @@ import logging
 import pandas as pd
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from mongodb_tunnel import start_ssh_tunnel
 import time
 
 # Load environment variables
@@ -21,6 +22,9 @@ logger = setup_logging()
 
 def setup_mongodb() -> MongoClient:
     """Initialize and return a MongoDB client."""
+    # Start SSH tunnel if configured
+    start_ssh_tunnel()
+    
     mongodb_uri = os.getenv('MONGODB_URI')
     if not mongodb_uri:
         raise ValueError("MONGODB_URI not found in environment variables")

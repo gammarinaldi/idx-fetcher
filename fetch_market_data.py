@@ -17,6 +17,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pymongo import MongoClient, ReplaceOne
+from mongodb_tunnel import start_ssh_tunnel
 from curl_cffi import requests
 from datetime import datetime
 import queue
@@ -183,6 +184,9 @@ def is_market_closed() -> bool:
 
 def setup_mongodb() -> MongoClient:
     """Initialize and return a MongoDB client."""
+    # Start SSH tunnel if configured
+    start_ssh_tunnel()
+    
     mongodb_uri = os.getenv('MONGODB_URI')
     if not mongodb_uri:
         raise ValueError("MONGODB_URI not found in environment variables")
@@ -762,7 +766,35 @@ if __name__ == '__main__':
     
     start_time = time.time()
 
-    stock_list = get_stock_list()
+    # Determine stock list: either from command line args, TICKERS env var, or full list from MongoDB
+    cmd_tickers = sys.argv[1:]
+    env_tickers = os.getenv('TICKERS')
+    
+    if cmd_tickers:
+        logger.info(f"Using tickers from command line: {cmd_tickers}")
+        stock_list = []
+        for code in cmd_tickers:
+            code = code.upper().strip()
+            if code == "JKSE":
+                stock_list.append("^JKSE")
+            elif not code.endswith(".JK") and not code.startswith("^"):
+                stock_list.append(f"{code}.JK")
+            else:
+                stock_list.append(code)
+    elif env_tickers:
+        logger.info(f"Using tickers from environment variable TICKERS: {env_tickers}")
+        stock_list = []
+        for code in env_tickers.split(','):
+            code = code.upper().strip()
+            if not code: continue
+            if code == "JKSE":
+                stock_list.append("^JKSE")
+            elif not code.endswith(".JK") and not code.startswith("^"):
+                stock_list.append(f"{code}.JK")
+            else:
+                stock_list.append(code)
+    else:
+        stock_list = get_stock_list()
     
     # Allow limiting stocks for testing via environment variable
     test_limit = os.getenv('TEST_LIMIT')

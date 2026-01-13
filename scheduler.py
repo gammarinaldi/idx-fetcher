@@ -9,6 +9,7 @@ import pytz
 import requests
 import platform
 from pymongo import MongoClient
+from mongodb_tunnel import start_ssh_tunnel
 
 # Configure logging
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
@@ -182,6 +183,9 @@ def validate_mongodb_connection():
     Returns:
         bool: True if connection is successful, False otherwise
     """
+    # Start SSH tunnel if configured
+    start_ssh_tunnel()
+    
     mongodb_uri = os.getenv('MONGODB_URI')
     mongodb_database = os.getenv('MONGODB_DATABASE')
     mongodb_collection = os.getenv('MONGODB_COLLECTION', 'daily_market_data')
