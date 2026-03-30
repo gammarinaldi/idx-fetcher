@@ -81,6 +81,43 @@ def get_target_timezone():
     """
     return pytz.timezone('Asia/Jakarta')
 
+def is_holiday(date: datetime) -> bool:
+    """
+    Check if a date is a holiday using Indonesia holiday API.
+    """
+    try:
+        month = date.month
+        year = date.year
+        date_str = date.strftime("%Y-%m-%d")
+
+        # Call holiday API
+        response = requests.get(f"https://libur.deno.dev/api?month={month}&year={year}")
+        
+        if response.status_code == 200:
+            holidays = response.json()
+
+            # Check if date is in the holiday list
+            for holiday in holidays:
+                # Support both formats: { tanggal, keterangan } and { date, name }
+                holiday_date = holiday.get('tanggal') or holiday.get('date')
+
+                if not holiday_date:
+                    continue
+
+                # Add leading zero if day is single digit (e.g., 2026-02-2 -> 2026-02-02)
+                if '-' in holiday_date:
+                    parts = holiday_date.split('-')
+                    if len(parts) == 3 and len(parts[2]) == 1:
+                        holiday_date = f"{parts[0]}-{parts[1]}-0{parts[2]}"
+
+                if holiday_date == date_str:
+                    logger.info(f"Date {date_str} is a holiday: {holiday.get('keterangan') or holiday.get('name')}")
+                    return True
+        return False
+    except Exception as error:
+        logger.warning(f"Error checking holiday for {date.strftime('%Y-%m-%d')}: {error}")
+        return False
+
 def is_market_closed() -> bool:
     """
     Check if today is a market holiday or weekend.
@@ -98,31 +135,7 @@ def is_market_closed() -> bool:
         return True
     
     # Check if it's a holiday
-    try:
-        month = today.month
-        year = today.year
-        
-        # Call holiday API
-        response = requests.get(f"https://dayoffapi.vercel.app/api?month={month}&year={year}")
-        if response.status_code == 200:
-            holidays = response.json()
-            today_str = today.strftime("%Y-%m-%d")
-            
-            # Check if today is in the holiday list
-            for holiday in holidays:
-                # Convert holiday date to match format (add leading zero if needed)
-                holiday_date = holiday["tanggal"]
-                if len(holiday_date.split("-")[2]) == 1:  # If day is single digit
-                    parts = holiday_date.split("-")
-                    holiday_date = f"{parts[0]}-{parts[1]}-0{parts[2]}"
-                
-                if holiday_date == today_str:
-                    logger.info(f"Today is a holiday: {holiday['keterangan']}")
-                    return True
-        return False
-    except Exception as e:
-        logger.warning(f"Error checking holiday: {str(e)}")
-        return False
+    return is_holiday(today)
 
 def run_fetch_script():
     """Run the fetch_market_data.py script."""
