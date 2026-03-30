@@ -338,9 +338,6 @@ def main():
     # Detect system timezone
     is_utc, timezone_name, utc_offset = get_system_timezone_info()
     
-    # Set up the schedule to run at 12:01 and 17:01 UTC+7 every day
-    jakarta_tz = get_target_timezone()
-    
     if is_utc:
         # System is in UTC+0, use UTC times directly
         schedule_time_1201 = "05:01"  # 12:01 Jakarta = 05:01 UTC
