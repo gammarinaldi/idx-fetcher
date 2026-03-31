@@ -188,7 +188,7 @@ def run_fetch_script():
     except Exception as e:
         logger.error(f"Error running fetch_market_data.py: {str(e)}")
 
-def validate_mongodb_connection():
+def validate_mongodb_connection(retries=1):
     """
     Validate MongoDB connection and retrieve sample data to ensure DB access is working.
     This function is called at startup to verify MongoDB connectivity.
@@ -196,9 +196,6 @@ def validate_mongodb_connection():
     Returns:
         bool: True if connection is successful, False otherwise
     """
-    # Start SSH tunnel if configured
-    start_ssh_tunnel()
-    
     mongodb_uri = os.getenv('MONGODB_URI')
     mongodb_database = os.getenv('MONGODB_DATABASE')
     mongodb_collection = os.getenv('MONGODB_COLLECTION', 'daily_market_data')
@@ -213,98 +210,68 @@ def validate_mongodb_connection():
         logger.warning("MONGODB_URI not found in environment variables - skipping MongoDB validation")
         return True
     
-    logger.info("Validating MongoDB connection...")
-    logger.info(f"MongoDB URI: {mongodb_uri.split('@')[-1] if '@' in mongodb_uri else '***'}")  # Hide credentials
-    logger.info(f"Database: {mongodb_database}")
-    logger.info(f"Collection: {mongodb_collection}")
-    
-    client = None
-    try:
-        # Attempt to connect with timeout
-        client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=10000)
-        
-        # Test connection with ping
-        client.admin.command('ping')
-        logger.info("✓ MongoDB connection successful!")
-        
-        # Get database name
-        if not mongodb_database:
-            # Extract database name from URI if not provided
-            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
-            logger.info(f"Using database from URI: {db_name}")
+    for attempt in range(retries + 1):
+        if attempt > 0:
+            logger.info(f"Retrying MongoDB connection (attempt {attempt}/{retries})...")
+            # Force restart tunnel in case it's a zombie process
+            start_ssh_tunnel(force=True)
+            # Wait a bit longer for the tunnel to stabilize
+            time.sleep(3)
         else:
-            db_name = mongodb_database
+            # First attempt: start tunnel if not running
+            start_ssh_tunnel(force=False)
+            
+        logger.info(f"Validating MongoDB connection (attempt {attempt + 1}/{retries + 1})...")
+        logger.info(f"MongoDB URI: {mongodb_uri.split('@')[-1] if '@' in mongodb_uri else '***'}")
         
-        # Access database and collection
-        db = client[db_name]
-        collection = db[mongodb_collection]
-        
-        # Get database stats
-        db_stats = db.command('dbStats')
-        logger.info(f"Database '{db_name}' stats:")
-        logger.info(f"  - Collections: {db_stats.get('collections', 0)}")
-        logger.info(f"  - Data size: {db_stats.get('dataSize', 0) / 1024 / 1024:.2f} MB")
-        logger.info(f"  - Storage size: {db_stats.get('storageSize', 0) / 1024 / 1024:.2f} MB")
-        
-        # Check if collection exists and get stats
-        collection_names = db.list_collection_names()
-        if mongodb_collection in collection_names:
-            try:
+        client = None
+        try:
+            # Attempt to connect with timeout
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=10000)
+            
+            # Test connection with ping
+            client.admin.command('ping')
+            logger.info("[OK] MongoDB connection successful!")
+            
+            # Get database name
+            if not mongodb_database:
+                # Extract database name from URI if not provided
+                db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+            else:
+                db_name = mongodb_database
+            
+            # Access database and collection
+            db = client[db_name]
+            collection = db[mongodb_collection]
+            
+            # Get database stats
+            db_stats = db.command('dbStats')
+            logger.info(f"Database '{db_name}' stats: {db_stats.get('collections', 0)} collections, {db_stats.get('dataSize', 0) / 1024 / 1024:.2f} MB data")
+            
+            # Check if collection exists
+            collection_names = db.list_collection_names()
+            if mongodb_collection in collection_names:
                 collection_stats = db.command('collStats', mongodb_collection)
-                document_count = collection_stats.get('count', 0)
-                logger.info(f"Collection '{mongodb_collection}' stats:")
-                logger.info(f"  - Document count: {document_count}")
-                logger.info(f"  - Size: {collection_stats.get('size', 0) / 1024 / 1024:.2f} MB")
-                
-                # Retrieve sample data (up to 3 documents)
-                if document_count > 0:
-                    logger.info("Retrieving sample data from collection...")
-                    sample_docs = list(collection.find().limit(3))
-                    
-                    if sample_docs:
-                        logger.info(f"✓ Successfully retrieved {len(sample_docs)} sample document(s):")
-                        for i, doc in enumerate(sample_docs, 1):
-                            # Remove _id for cleaner output, show key fields
-                            sample = {k: v for k, v in doc.items() if k != '_id'}
-                            # Truncate long values for readability
-                            sample_str = {}
-                            for key, value in sample.items():
-                                if isinstance(value, str) and len(value) > 50:
-                                    sample_str[key] = value[:50] + "..."
-                                else:
-                                    sample_str[key] = value
-                            logger.info(f"  Sample {i}: {sample_str}")
-                    else:
-                        logger.warning("Collection exists but no documents found")
-                else:
-                    logger.info("Collection is empty (no documents yet)")
-                
-                # Test read access by checking if we can list indexes
-                indexes = collection.list_indexes()
-                index_list = list(indexes)
-                logger.info(f"✓ Database access verified - {len(index_list)} index(es) found")
-            except Exception as coll_error:
-                logger.warning(f"Could not get collection stats: {str(coll_error)}")
-                logger.info("Collection exists but stats unavailable - this is okay")
-        else:
-            logger.info(f"Collection '{mongodb_collection}' does not exist yet (will be created on first write)")
-            logger.info("✓ Database access verified - ready to create collection when needed")
-        
-        logger.info("✓ MongoDB validation completed successfully!")
-        return True
-        
-    except Exception as e:
-        logger.error(f"✗ MongoDB validation failed: {str(e)}")
-        logger.error("Please check:")
-        logger.error("  1. MongoDB service is running and accessible")
-        logger.error("  2. MONGODB_URI is correct")
-        logger.error("  3. Network connectivity to MongoDB server")
-        logger.error("  4. MongoDB authentication credentials (if required)")
-        return False
-        
-    finally:
-        if client:
-            client.close()
+                logger.info(f"Collection '{mongodb_collection}': {collection_stats.get('count', 0)} documents")
+            else:
+                logger.info(f"Collection '{mongodb_collection}' does not exist yet")
+            
+            logger.info("[OK] MongoDB validation completed successfully!")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[X] MongoDB attempt {attempt + 1} failed: {str(e)}")
+            if attempt == retries:
+                logger.error("Final attempt failed. Please check:")
+                logger.error("  1. MongoDB service is running and accessible")
+                logger.error("  2. MONGODB_URI and SSH Tunnel settings are correct")
+                logger.error("  3. Network connectivity and Firewall rules")
+                return False
+        finally:
+            if client:
+                client.close()
+    
+    return False
 
 def get_next_run_time():
     """Get the next scheduled run time in UTC+7."""

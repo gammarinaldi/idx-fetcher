@@ -19,13 +19,41 @@ def is_port_open(port, host='127.0.0.1'):
         except (socket.timeout, ConnectionRefusedError):
             return False
 
-def start_ssh_tunnel():
+def kill_port_process(port):
+    """Try to kill the process listening on the specified port."""
+    try:
+        if os.name == 'nt':
+            # On Windows, find the PID and kill it
+            cmd = f'netstat -ano | findstr LISTENING | findstr :{port}'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.stdout:
+                for line in result.stdout.strip().split('\n'):
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        logger.info(f"Killing process {pid} on port {port}")
+                        subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True)
+        else:
+            # On Unix-like
+            subprocess.run(['fuser', '-k', f'{port}/tcp'], capture_output=True)
+        return True
+    except Exception as e:
+        logger.error(f"Error killing process on port {port}: {e}")
+        return False
+
+def start_ssh_tunnel(force=False):
     """Start the SSH tunnel if configured and not already running."""
     use_ssh_tunnel = os.getenv('USE_SSH_TUNNEL', 'FALSE').upper() == 'TRUE'
     if not use_ssh_tunnel:
         return True
 
     local_port = int(os.getenv('MONGODB_LOCAL_PORT', 27017))
+    
+    if force:
+        logger.info(f"Force starting SSH tunnel on port {local_port}")
+        kill_port_process(local_port)
+        time.sleep(1)
+
     remote_port = int(os.getenv('MONGODB_REMOTE_PORT', 27017))
     ssh_host = os.getenv('SSH_HOST')
     ssh_user = os.getenv('SSH_USER', 'ubuntu')
@@ -35,7 +63,9 @@ def start_ssh_tunnel():
         logger.error("SSH_HOST or SSH_KEY_PATH not configured for SSH tunnel")
         return False
 
-    if is_port_open(local_port):
+    if not force and is_port_open(local_port):
+        # Even if the port is open, it might not be a functional tunnel.
+        # But for now, we'll assume it's okay unless the connection fails later.
         logger.info(f"Port {local_port} is already open. Assuming tunnel is running.")
         return True
 
