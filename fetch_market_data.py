@@ -226,16 +226,9 @@ def create_mongodb_indexes(collection_name: str) -> None:
     collection = db[collection_name]
     
     try:
-        # Drop existing unique index if it exists to allow multiple entries per day
-        try:
-            collection.drop_index([("date", 1), ("ticker", 1)])
-            logger.info("Dropped existing unique index on (date, ticker)")
-        except Exception as drop_error:
-            logger.info(f"No existing unique index to drop: {str(drop_error)}")
-        
-        # Create compound index on date and ticker (non-unique to allow multiple entries per day)
-        collection.create_index([("date", 1), ("ticker", 1)], background=True)
-        logger.info("Successfully created compound index on (date, ticker)")
+        # Create unique compound index on date and ticker to ensure one entry per day
+        collection.create_index([("date", 1), ("ticker", 1)], unique=True, background=True)
+        logger.info("Successfully created unique compound index on (date, ticker)")
         
         # Create individual indexes for common queries
         collection.create_index([("date", 1)], background=True)
@@ -243,7 +236,7 @@ def create_mongodb_indexes(collection_name: str) -> None:
         logger.info("Successfully created individual indexes on date and ticker")
         
     except Exception as e:
-        logger.warning(f"Index creation warning (may already exist): {str(e)}")
+        logger.warning(f"Index creation warning (may already exist or duplicates found): {str(e)}")
     finally:
         client.close()
 
@@ -401,7 +394,7 @@ class OptimizedMongoDBUploader:
             logger.error(traceback.format_exc())
             raise
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self,):
         """Context manager exit."""
         if self.client:
             self.client.close()
@@ -414,11 +407,14 @@ class OptimizedMongoDBUploader:
         # Prepare data for MongoDB
         df_copy = df.copy()
         df_copy.columns = df_copy.columns.str.lower()
-        # Convert date to datetime and add current time with minutes in Jakarta timezone
+        
+        # Get current time in Jakarta for timestamps
         jakarta_tz = get_target_timezone()
         current_time = datetime.now(jakarta_tz)
+        
+        # Convert date to datetime at midnight (00:00:00) to ensure one entry per day
         df_copy['date'] = pd.to_datetime(df_copy['date']).dt.date.apply(
-            lambda x: datetime.combine(x, current_time.time().replace(second=0, microsecond=0))
+            lambda x: datetime.combine(x, datetime.min.time())
         )
         
         # Add createdAt and updatedAt timestamps
