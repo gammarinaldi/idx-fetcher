@@ -394,7 +394,7 @@ class OptimizedMongoDBUploader:
             logger.error(traceback.format_exc())
             raise
     
-    def __exit__(self,):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         if self.client:
             self.client.close()
