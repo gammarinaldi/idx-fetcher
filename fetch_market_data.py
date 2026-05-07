@@ -198,15 +198,56 @@ def is_market_closed() -> bool:
     # Check if it's a holiday
     return is_holiday(today)
 
-def setup_mongodb() -> MongoClient:
-    """Initialize and return a MongoDB client."""
-    # Start SSH tunnel if configured
-    start_ssh_tunnel()
+def setup_mongodb(max_retries: int = 3, initial_delay: int = 2) -> MongoClient:
+    """
+    Initialize and return a MongoDB client with exponential backoff retry logic.
     
+    Args:
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries in seconds
+        
+    Returns:
+        MongoClient: Connected MongoDB client
+    """
     mongodb_uri = os.getenv('MONGODB_URI')
     if not mongodb_uri:
         raise ValueError("MONGODB_URI not found in environment variables")
-    return MongoClient(mongodb_uri)
+    
+    delay = initial_delay
+    last_error = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            if attempt > 0:
+                logger.info(f"Retrying MongoDB connection (Attempt {attempt}/{max_retries})...")
+                # Force restart SSH tunnel on retries in case it's broken
+                start_ssh_tunnel(force=True)
+                # Wait a bit for the tunnel to stabilize
+                time.sleep(2)
+            else:
+                # Normal start for the first attempt
+                start_ssh_tunnel(force=False)
+            
+            # Use a shorter server selection timeout for each attempt
+            client = MongoClient(mongodb_uri, serverSelectionTimeoutMS=5000)
+            # Test connection with a ping
+            client.admin.command('ping')
+            
+            if attempt > 0:
+                logger.info("MongoDB connection established successfully on retry")
+            
+            return client
+            
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                wait_time = delay * (2 ** (attempt)) + random.uniform(0, 1)
+                logger.warning(f"MongoDB connection failed: {str(e)}")
+                logger.info(f"Retrying in {wait_time:.2f} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"Failed to connect to MongoDB after {max_retries} retries: {str(last_error)}")
+                raise last_error
 
 def create_mongodb_indexes(collection_name: str) -> None:
     """

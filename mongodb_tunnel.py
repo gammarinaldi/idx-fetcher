@@ -77,14 +77,24 @@ def start_ssh_tunnel(force=False):
 
     # Command for SSH tunnel
     # -N: Do not execute a remote command
-    # -f: Go to background (might not work well with subprocess on Windows, 
-    # but we'll try to use start on Windows or just run in background)
+    # -o ExitOnForwardFailure=yes: Exit if port forwarding fails
+    # -o StrictHostKeyChecking=no: Don't ask to verify host key
+    # -o BatchMode=yes: Disable all queries for user input (passwords, etc.)
     ssh_cmd = [
         'ssh', '-i', ssh_key_path,
         '-L', f'{local_port}:localhost:{remote_port}',
-        '-N', '-o', 'ExitOnForwardFailure=yes',
+        '-N', 
+        '-o', 'ExitOnForwardFailure=yes',
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'BatchMode=yes',
         f'{ssh_user}@{ssh_host}'
     ]
+    
+    logger.debug(f"SSH command: {' '.join(ssh_cmd)}")
+    
+    if not os.path.exists(ssh_key_path):
+        logger.error(f"SSH key not found at: {ssh_key_path}")
+        return False
     
     try:
         # On Windows, we might want to use 'start' or just Popen
