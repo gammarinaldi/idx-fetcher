@@ -330,6 +330,9 @@ def save_delisted_ticker(symbol: str) -> None:
         dir_path = os.getenv('DIR_PATH', default_dir)
         delisted_csv_path = os.path.join(dir_path, "delisted.csv")
         
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(delisted_csv_path)), exist_ok=True)
+        
         file_exists = os.path.exists(delisted_csv_path)
         with open(delisted_csv_path, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -580,6 +583,7 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
     
     try:
         for attempt in range(max_retries):
+            error_handler = None
             try:
                 logger.info(f"Fetching {symbol} (Attempt {attempt + 1}/{max_retries})")
                 
@@ -625,16 +629,21 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
                 logger.debug(f"Successfully fetched data for {symbol} via {'proxy' if proxy_config else 'direct connection'}")
                     
-                # Check if YFPricesMissingError was logged
-                if any("YFPricesMissingError" in msg or "no price data found" in msg 
-                      for msg in error_handler.error_messages):
+                # Check if YFPricesMissingError or other delisted/not found errors were logged for this specific symbol
+                clean_symbol = symbol.replace(".JK", "").replace("^", "").lower()
+                is_delisted_msg = False
+                for msg in error_handler.error_messages:
+                    msg_lower = msg.lower()
+                    if any(indicator in msg_lower for indicator in ["yfpricesmissingerror", "no price data found", "possibly delisted", "not found"]):
+                        if clean_symbol in msg_lower:
+                            is_delisted_msg = True
+                            break
+
+                if is_delisted_msg:
                     logger.warning(f"No price data found for {symbol}, likely delisted. Marking as delisted and skipping retries.")
                     save_delisted_ticker(symbol)
-                    return False
+                    return True
 
-                # Remove the custom handler
-                logging.getLogger('yfinance').removeHandler(error_handler)
-                
                 if df.empty:
                     raise ValueError("Empty dataframe returned")
                 
@@ -658,8 +667,6 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                     except Exception as mongo_error:
                         logger.error(f"Failed to upload {symbol} to MongoDB: {str(mongo_error)}")
                         logger.error(traceback.format_exc())
-                        # Don't re-raise - continue processing other symbols, but track the failure
-                        # The final check will verify if any data was uploaded
                 
                 return True
                 
@@ -671,6 +678,9 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
             except ValueError as ve:
                 logger.warning(f"Value error while fetching {symbol}: {ve}")
                 logger.debug(f"Value error details: {str(ve)}")
+            finally:
+                if error_handler:
+                    logging.getLogger('yfinance').removeHandler(error_handler)
             
             if attempt < max_retries - 1:
                 wait_time = delay * (2 ** attempt) + random.uniform(0, 1)
