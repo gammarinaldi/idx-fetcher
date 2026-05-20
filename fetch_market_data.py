@@ -281,6 +281,66 @@ def create_mongodb_indexes(collection_name: str) -> None:
     finally:
         client.close()
 
+def save_delisted_ticker(symbol: str) -> None:
+    """
+    Save the ticker name when it's possibly delisted and has no price data.
+    Updates MongoDB 'tickers' collection and saves to a local CSV file.
+    
+    Args:
+        symbol: The stock symbol that failed to fetch
+    """
+    clean_ticker = symbol.replace(".JK", "").replace("^", "")
+    current_time = datetime.now()
+    
+    logger.warning(f"Processing delisted ticker: {clean_ticker}")
+    
+    # 1. Update MongoDB
+    try:
+        client = setup_mongodb()
+        db_name = os.getenv('MONGODB_DATABASE')
+        if not db_name:
+            mongodb_uri = os.getenv('MONGODB_URI')
+            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+        
+        db = client[db_name]
+        collection = db['tickers']
+        
+        result = collection.update_one(
+            {"ticker": clean_ticker},
+            {"$set": {
+                "is_active": False,
+                "delisted": True,
+                "delisted_at": current_time,
+                "status_note": "possibly delisted; no price data found"
+            }}
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"Marked {clean_ticker} as inactive/delisted in MongoDB")
+        else:
+            logger.debug(f"Ticker {clean_ticker} was already inactive or not found in MongoDB")
+            
+        client.close()
+    except Exception as e:
+        logger.error(f"Failed to update MongoDB for delisted ticker {clean_ticker}: {str(e)}")
+
+    # 2. Save to local CSV for record
+    try:
+        default_dir = os.getcwd()
+        dir_path = os.getenv('DIR_PATH', default_dir)
+        delisted_csv_path = os.path.join(dir_path, "delisted.csv")
+        
+        file_exists = os.path.exists(delisted_csv_path)
+        with open(delisted_csv_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Ticker", "DateDetected", "Reason"])
+            writer.writerow([clean_ticker, current_time.strftime("%Y-%m-%d %H:%M:%S"), "possibly delisted; no price data found"])
+        
+        logger.info(f"Saved delisted ticker {clean_ticker} to {delisted_csv_path}")
+    except Exception as e:
+        logger.error(f"Failed to save delisted ticker {clean_ticker} to CSV: {str(e)}")
+
 def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
     """
     Process and format a dataframe for output (CSV or MongoDB).
@@ -568,7 +628,8 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                 # Check if YFPricesMissingError was logged
                 if any("YFPricesMissingError" in msg or "no price data found" in msg 
                       for msg in error_handler.error_messages):
-                    logger.warning(f"No price data found for {symbol}, likely delisted. Skipping retries.")
+                    logger.warning(f"No price data found for {symbol}, likely delisted. Marking as delisted and skipping retries.")
+                    save_delisted_ticker(symbol)
                     return False
 
                 # Remove the custom handler
