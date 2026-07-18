@@ -281,20 +281,95 @@ def create_mongodb_indexes(collection_name: str) -> None:
     finally:
         client.close()
 
-def save_delisted_ticker(symbol: str) -> None:
+def record_fetch_failure(symbol: str) -> None:
     """
-    Save the ticker name when it's possibly delisted and has no price data.
-    Updates MongoDB 'tickers' collection and saves to a local CSV file.
+    Record a fetch failure for a ticker.
+    Increments consecutive_failures counter in MongoDB 'tickers' collection
+    and saves to local CSV log. Does NOT modify is_active — that is manual only.
     
     Args:
         symbol: The stock symbol that failed to fetch
     """
-    clean_ticker = symbol.replace(".JK", "").replace("^", "")
+    clean_ticker = normalize_ticker(symbol)
     current_time = datetime.now()
     
-    logger.warning(f"Processing delisted ticker: {clean_ticker}")
+    logger.warning(f"Recording fetch failure for ticker: {clean_ticker}")
     
-    # 1. Update MongoDB
+    # 1. Update MongoDB — increment consecutive_failures, do NOT touch is_active
+    try:
+        client = setup_mongodb()
+        db_name = os.getenv('MONGODB_DATABASE')
+        if not db_name:
+            mongodb_uri = os.getenv('MONGODB_URI')
+            db_name = mongodb_uri.split('/')[-1].split('?')[0] if mongodb_uri else 'sahamify_db'
+        
+        db = client[db_name]
+        collection = db['tickers']
+        
+        doc = collection.find_one({"ticker": clean_ticker})
+        
+        if doc:
+            last_failed = doc.get('last_failed_at')
+            if last_failed and last_failed.date() == current_time.date():
+                logger.debug(f"{clean_ticker} already recorded failure today, skipping")
+                client.close()
+                return
+
+            count = doc.get('consecutive_failures', 0) + 1
+            collection.update_one(
+                {"ticker": clean_ticker},
+                {"$set": {
+                    "consecutive_failures": count,
+                    "last_failed_at": current_time
+                }}
+            )
+            logger.warning(f"{clean_ticker} fetch failed ({count}/N consecutive days)")
+        else:
+            collection.update_one(
+                {"ticker": clean_ticker},
+                {"$set": {
+                    "consecutive_failures": 1,
+                    "last_failed_at": current_time,
+                    "is_active": True
+                }},
+                upsert=True
+            )
+            logger.warning(f"{clean_ticker} fetch failed (first time)")
+        
+        client.close()
+    except Exception as e:
+        logger.error(f"Failed to update MongoDB failure counter for {clean_ticker}: {str(e)}")
+
+    # 2. Save to local CSV for manual review
+    try:
+        default_dir = os.getcwd()
+        dir_path = os.getenv('DIR_PATH', default_dir)
+        failures_csv_path = os.path.join(dir_path, "fetch_failures.csv")
+        
+        os.makedirs(os.path.dirname(os.path.abspath(failures_csv_path)), exist_ok=True)
+        
+        file_exists = os.path.exists(failures_csv_path)
+        with open(failures_csv_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Ticker", "Date", "ConsecutiveFailures", "Reason"])
+            writer.writerow([clean_ticker, current_time.strftime("%Y-%m-%d %H:%M:%S"), "", "no price data found by yfinance"])
+        
+        logger.info(f"Logged fetch failure for {clean_ticker} to {failures_csv_path}")
+    except Exception as e:
+        logger.error(f"Failed to save fetch failure for {clean_ticker} to CSV: {str(e)}")
+
+
+def reset_failure_counter(symbol: str) -> None:
+    """
+    Reset consecutive_failures counter to 0 when a ticker is fetched successfully.
+    Does NOT modify is_active — that is manual only.
+    
+    Args:
+        symbol: The stock symbol that was fetched successfully
+    """
+    clean_ticker = normalize_ticker(symbol)
+    
     try:
         client = setup_mongodb()
         db_name = os.getenv('MONGODB_DATABASE')
@@ -308,41 +383,26 @@ def save_delisted_ticker(symbol: str) -> None:
         result = collection.update_one(
             {"ticker": clean_ticker},
             {"$set": {
-                "is_active": False,
-                "delisted": True,
-                "delisted_at": current_time,
-                "status_note": "possibly delisted; no price data found"
+                "consecutive_failures": 0,
+                "last_failed_at": None
             }}
         )
-        
         if result.modified_count > 0:
-            logger.info(f"Marked {clean_ticker} as inactive/delisted in MongoDB")
-        else:
-            logger.debug(f"Ticker {clean_ticker} was already inactive or not found in MongoDB")
-            
+            logger.debug(f"Reset failure counter for {clean_ticker}")
+        
         client.close()
     except Exception as e:
-        logger.error(f"Failed to update MongoDB for delisted ticker {clean_ticker}: {str(e)}")
+        logger.error(f"Failed to reset failure counter for {clean_ticker}: {str(e)}")
 
-    # 2. Save to local CSV for record
-    try:
-        default_dir = os.getcwd()
-        dir_path = os.getenv('DIR_PATH', default_dir)
-        delisted_csv_path = os.path.join(dir_path, "delisted.csv")
-        
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(delisted_csv_path)), exist_ok=True)
-        
-        file_exists = os.path.exists(delisted_csv_path)
-        with open(delisted_csv_path, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["Ticker", "DateDetected", "Reason"])
-            writer.writerow([clean_ticker, current_time.strftime("%Y-%m-%d %H:%M:%S"), "possibly delisted; no price data found"])
-        
-        logger.info(f"Saved delisted ticker {clean_ticker} to {delisted_csv_path}")
-    except Exception as e:
-        logger.error(f"Failed to save delisted ticker {clean_ticker} to CSV: {str(e)}")
+
+def normalize_ticker(symbol: str) -> str:
+    """
+    Normalize ticker symbol for DB/display consistency.
+      ^JKSE -> IHSG, BBCA.JK -> BBCA, ACES.JK -> ACES
+    """
+    clean = symbol.replace(".JK", "")
+    return "IHSG" if clean == "^JKSE" else clean
+
 
 def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -366,8 +426,7 @@ def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Missing required columns: {missing_columns}")
     
     # Clean ticker name
-    clean_ticker = ticker.replace(".JK", "")
-    df['Ticker'] = clean_ticker
+    df['Ticker'] = normalize_ticker(ticker)
     
     # Round down prices using math.floor
     df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(
@@ -640,8 +699,8 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                             break
 
                 if is_delisted_msg:
-                    logger.warning(f"No price data found for {symbol}, likely delisted. Marking as delisted and skipping retries.")
-                    save_delisted_ticker(symbol)
+                    logger.warning(f"No price data found for {symbol}, recording fetch failure.")
+                    record_fetch_failure(symbol)
                     return True
 
                 if df.empty:
@@ -668,6 +727,7 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                         logger.error(f"Failed to upload {symbol} to MongoDB: {str(mongo_error)}")
                         logger.error(traceback.format_exc())
                 
+                reset_failure_counter(symbol)
                 return True
                 
             except (ChunkedEncodingError, ProtocolError, RequestException) as net_error:
@@ -850,7 +910,7 @@ def get_stock_list() -> List[str]:
         # Format stock codes with special handling for JKSE
         formatted_codes = []
         for code in stock_codes:
-            if code == "JKSE":
+            if code in ("IHSG", "JKSE"):
                 formatted_codes.append("^JKSE")
             else:
                 formatted_codes.append(f"{code}.JK")
@@ -899,7 +959,7 @@ if __name__ == '__main__':
         stock_list = []
         for code in cmd_tickers:
             code = code.upper().strip()
-            if code == "JKSE":
+            if code in ("IHSG", "JKSE"):
                 stock_list.append("^JKSE")
             elif not code.endswith(".JK") and not code.startswith("^"):
                 stock_list.append(f"{code}.JK")
@@ -911,7 +971,7 @@ if __name__ == '__main__':
         for code in env_tickers.split(','):
             code = code.upper().strip()
             if not code: continue
-            if code == "JKSE":
+            if code in ("IHSG", "JKSE"):
                 stock_list.append("^JKSE")
             elif not code.endswith(".JK") and not code.startswith("^"):
                 stock_list.append(f"{code}.JK")
