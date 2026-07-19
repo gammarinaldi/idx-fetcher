@@ -416,8 +416,21 @@ def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
         Processed DataFrame ready for output
     """
     # Flatten multi-index columns if they exist
+    # Level order differs based on group_by setting:
+    #   group_by='ticker' → level 0 = ticker, level 1 = field names (Open/Close/etc)
+    #   no group_by       → level 0 = field names, level 1 = ticker
+    # Auto-detect which level contains OHLCV field names
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(1)
+        ohlcv_fields = {'Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close'}
+        level0_vals = set(df.columns.get_level_values(0))
+        if ohlcv_fields.intersection(level0_vals):
+            df.columns = df.columns.get_level_values(0)  # field names at level 0
+        else:
+            df.columns = df.columns.get_level_values(1)  # field names at level 1
+
+    # Drop 'Adj Close' column if present (we use raw Close)
+    if 'Adj Close' in df.columns:
+        df = df.drop(columns=['Adj Close'])
     
     # Check required columns
     required_columns = ["Open", "High", "Low", "Close"]
@@ -428,9 +441,9 @@ def process_dataframe_for_output(ticker: str, df: pd.DataFrame) -> pd.DataFrame:
     # Clean ticker name
     df['Ticker'] = normalize_ticker(ticker)
     
-    # Round down prices using math.floor
+    # Round prices to nearest integer (consistent with Yahoo Finance display)
     df[["Open", "High", "Low", "Close"]] = df[["Open", "High", "Low", "Close"]].apply(
-        lambda x: x.apply(math.floor)
+        lambda x: x.round(0).astype(int)
     )
     
     # Reset index to make Date a column
@@ -685,7 +698,7 @@ def fetch_stock_data_optimized(symbol: str, max_retries: int, initial_delay: int
                     session = requests.Session(impersonate="chrome")
                 
                 logger.debug(f"Attempting to fetch {symbol} data via {'proxy' if proxy_config else 'direct connection'}")
-                df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session)
+                df = yf.download(symbol, period=PERIOD, interval=INTERVAL, group_by=GROUP_BY, session=session, auto_adjust=False)
                 logger.debug(f"Successfully fetched data for {symbol} via {'proxy' if proxy_config else 'direct connection'}")
                     
                 # Check if YFPricesMissingError or other delisted/not found errors were logged for this specific symbol
